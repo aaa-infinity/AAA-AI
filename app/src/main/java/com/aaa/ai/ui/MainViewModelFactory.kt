@@ -13,7 +13,8 @@ class MainViewModelFactory(private val application: Application) : ViewModelProv
         if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
             return MainViewModel(
                 pointsManager = PointsManager(application),
-                repository = ApiRepository()
+                repository = ApiRepository(),
+                appContext = application
             ) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")

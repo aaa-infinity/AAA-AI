@@ -1,7 +1,9 @@
 package com.aaa.ai.data
 
 import com.aaa.ai.data.ApiCategory.AI_CHAT
+import com.aaa.ai.data.ApiCategory.ANIME
 import com.aaa.ai.data.ApiCategory.DOWNLOADERS
+import com.aaa.ai.data.ApiCategory.NSFW
 import com.aaa.ai.data.ApiCategory.UTILITIES
 import com.aaa.ai.data.ApiCategory.VIP_GALLERIES
 
@@ -30,6 +32,8 @@ object EndpointCatalog {
         ApiEndpoint("gptlogic", "GPT Logic", "gptlogic", "q", "Question", AI_CHAT),
         ApiEndpoint("deep-ai", "Deep AI", "deep-ai", "query", "Query", AI_CHAT),
         ApiEndpoint("llama-meta", "Llama Meta", "llama-meta", "q", "Prompt", AI_CHAT),
+        ApiEndpoint("dalle", "DALL-E", "dalle", "q", "Image prompt", AI_CHAT),
+        ApiEndpoint("ai-detector", "AI Detector", "ai-detector", "q", "Text to check", AI_CHAT),
 
         // ---------------- Downloaders (-40) ----------------
         ApiEndpoint("ytdl", "YouTube DL", "ytdl", "url", "YouTube URL", DOWNLOADERS),
@@ -45,6 +49,11 @@ object EndpointCatalog {
         ApiEndpoint("applemusic", "Apple Music", "applemusic", "q", "Song name", DOWNLOADERS),
         ApiEndpoint("gitclone", "Git Clone", "gitclone", "url", "Repo URL", DOWNLOADERS),
 
+        // ---------------- Anime (-40) ----------------
+        ApiEndpoint("anidl", "Anime DL", "anidl", "url", "Bilibili URL", DOWNLOADERS),
+        ApiEndpoint("anisearch", "Anime Search", "anisearch", "q", "Query (naruto)", ANIME),
+        ApiEndpoint("animesearch", "Anime Search (alt)", "animesearch", "q", "Query (naruto)", ANIME),
+
         // ---------------- Utilities : Standard (-10) ----------------
         ApiEndpoint("npmsearch", "NPM Search", "npmsearch", "q", "Package (baileys)", UTILITIES),
         ApiEndpoint("pinterest", "Pinterest", "pinterest", "q", "Query (anime)", UTILITIES),
@@ -52,8 +61,6 @@ object EndpointCatalog {
         ApiEndpoint("lyrics2", "Lyrics (alt)", "lyrics2", "q", "Song (ozeba)", UTILITIES),
         ApiEndpoint("spotifysearch", "Spotify Search", "spotifysearch", "q", "Query", UTILITIES),
         ApiEndpoint("tiktoksearch", "TikTok Search", "tiktoksearch", "q", "Query", UTILITIES),
-        ApiEndpoint("anisearch", "Anime Search", "anisearch", "q", "Query (naruto)", UTILITIES),
-        ApiEndpoint("animesearch", "Anime Search (alt)", "animesearch", "q", "Query (naruto)", UTILITIES),
         ApiEndpoint("tiktokstalk", "TikTok Stalk", "tiktokstalk", "q", "Username", UTILITIES),
         ApiEndpoint("facts", "Facts", "facts", "q", "Topic", UTILITIES),
         ApiEndpoint("randomquotes", "Random Quotes", "randomquotes", "q", "Topic", UTILITIES),
@@ -66,10 +73,18 @@ object EndpointCatalog {
         ApiEndpoint("ssweb", "Screenshot Web", "ssweb", "url", "Website URL", UTILITIES),
         ApiEndpoint("txt2img", "Text to Image", "txt2img", "q", "Prompt", UTILITIES),
         ApiEndpoint("translate", "Translate", "translate", "text", "Text", UTILITIES),
+        ApiEndpoint("randomimage", "Random Image", "randomimage", "", "No input needed", UTILITIES),
 
         // ---------------- Super VIP Randomized Galleries (-100) ----------------
         ApiEndpoint("waifu", "Waifu", "waifu", "q", "Topic", VIP_GALLERIES, isGallery = true),
-        ApiEndpoint("cosplay", "Cosplay", "cosplay", "q", "Topic", VIP_GALLERIES, isGallery = true)
+        ApiEndpoint("cosplay", "Cosplay", "cosplay", "q", "Topic", VIP_GALLERIES, isGallery = true),
+
+        // ---------------- NSFW (-100) ----------------
+        ApiEndpoint("nsfw/cuckold", "NSFW Cuckold", "nsfw/cuckold", "q", "Topic", NSFW, isGallery = true),
+        ApiEndpoint("nsfw/pussy", "NSFW Pussy", "nsfw/pussy", "q", "Topic", NSFW, isGallery = true),
+        ApiEndpoint("nsfw/blowjob", "NSFW Blowjob", "nsfw/blowjob", "q", "Topic", NSFW, isGallery = true),
+        ApiEndpoint("nsfw/milf", "NSFW MILF", "nsfw/milf", "q", "Topic", NSFW, isGallery = true),
+        ApiEndpoint("nsfw/yuri", "NSFW Yuri", "nsfw/yuri", "q", "Topic", NSFW, isGallery = true)
     )
 
     val categories: List<ApiCategory> = ApiCategory.entries

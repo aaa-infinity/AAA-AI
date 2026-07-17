@@ -20,7 +20,11 @@ data class ApiEndpoint(
     val category: ApiCategory,
     val isGallery: Boolean = false
 ) {
+    /** True when the endpoint expects a user-supplied query parameter. */
+    val hasParam: Boolean get() = paramKey.isNotBlank()
+
     fun buildUrl(baseUrl: String, value: String): String {
+        if (!hasParam) return "$baseUrl/$path"
         val encoded = java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20")
         return "$baseUrl/$path?$paramKey=$encoded"
     }
@@ -34,5 +38,7 @@ enum class ApiCategory(val title: String) {
     AI_CHAT("AI Chat"),
     DOWNLOADERS("Downloaders"),
     UTILITIES("Utilities"),
-    VIP_GALLERIES("VIP Galleries")
+    ANIME("Anime"),
+    VIP_GALLERIES("VIP Galleries"),
+    NSFW("NSFW")
 }

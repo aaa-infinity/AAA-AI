@@ -19,7 +19,7 @@ class MainActivityTest {
     }
 
     @Test
-    fun showsEarnButton() {
-        composeTestRule.onNodeWithText("Earn Tokens  (+200 ▶ Watch Ad)").assertExists()
+    fun showsEarnNav() {
+        composeTestRule.onNodeWithText("Earn").assertExists()
     }
 }

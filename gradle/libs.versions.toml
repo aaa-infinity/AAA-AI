@@ -6,6 +6,9 @@ lifecycle = "2.8.4"
 activityKtx = "1.9.1"
 composeBom = "2024.09.00"
 material3 = "1.3.0"
+firebaseBom = "33.3.0"
+materialIconsExtended = "1.7.0"
+navigationCompose = "2.8.0"
 okhttp = "4.12.0"
 datastore = "1.1.1"
 coil = "2.7.0"
@@ -42,3 +45,10 @@ androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-co
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 truth = { group = "com.google.truth", name = "truth", version.ref = "truth" }
+
+androidx-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended", version.ref = "materialIconsExtended" }
+androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
+firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
+firebase-analytics = { group = "com.google.firebase", name = "firebase-analytics" }
+firebase-crashlytics = { group = "com.google.firebase", name = "firebase-crashlytics" }
+firebase-config = { group = "com.google.firebase", name = "firebase-config" }
