@@ -6,29 +6,37 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Diamond
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Switch
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,127 +49,121 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.aaa.ai.AuthViewModel
 import com.aaa.ai.MainViewModel
 import com.aaa.ai.data.ApiCategory
 import com.aaa.ai.data.ApiEndpoint
 import com.aaa.ai.data.EndpointCatalog
 import com.aaa.ai.data.ResultKind
-import com.aaa.ai.ui.theme.ThemeState
+import com.aaa.ai.data.UserProfile
+import com.aaa.ai.data.model.ParsedResult
 import kotlinx.coroutines.launch
 
-private enum class Screen { CHAT, DOWNLOADERS, TOOLS, GALLERIES, EARN, HISTORY }
+private enum class Screen { CHAT, DOWNLOADERS, TOOLS, GALLERIES, PROFILE }
 
 private data class TabDef(val screen: Screen, val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
 
+/**
+ * Root composable. Shows a login gate when signed out, otherwise the main
+ * scaffold with a refined top app bar (points balance + earn) and a bottom
+ * navigation bar with indicator pills across five routes.
+ *
+ * @param onEarnRewarded invoked to show the AdMob rewarded ad (safe tabs).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AaaAiApp(
     viewModel: MainViewModel,
+    authViewModel: AuthViewModel,
     isDark: Boolean,
-    onToggleTheme: (Boolean) -> Unit
+    onToggleTheme: (Boolean) -> Unit,
+    onEarnRewarded: () -> Unit
 ) {
+    val user by authViewModel.user.collectAsStateWithLifecycle()
+    var confirmed18 by remember { mutableStateOf(false) }
+
+    LaunchedEffect(user?.uid) { viewModel.setUserId(user?.uid) }
+
+    if (user == null) {
+        LoginScreen(
+            authViewModel = authViewModel,
+            isDark = isDark,
+            onToggleTheme = onToggleTheme
+        )
+        return
+    }
+
     val points by viewModel.userPoints.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val result by viewModel.result.collectAsStateWithLifecycle()
     val chatMessages by viewModel.chatMessages.collectAsStateWithLifecycle()
     val isTyping by viewModel.isTyping.collectAsStateWithLifecycle()
-    val galleryUrl by viewModel.galleryUrl.collectAsStateWithLifecycle()
-    val toolText by viewModel.toolText.collectAsStateWithLifecycle()
-    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val transactions by viewModel.transactions.collectAsStateWithLifecycle(initialValue = emptyList())
+    val profile by UserProfile.profileFlow(LocalContext.current).collectAsStateWithLifecycle(initialValue = UserProfile.Profile())
     val ctx = LocalContext.current
     val snackbarHost = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
     var selected by remember { mutableStateOf(Screen.CHAT) }
-    var adVisible by remember { mutableStateOf(false) }
+    var adsterraVisible by remember { mutableStateOf(false) }
     var showInsufficient by remember { mutableStateOf(false) }
     var lightboxUrl by remember { mutableStateOf<String?>(null) }
     var activeEndpoint by remember { mutableStateOf<ApiEndpoint?>(null) }
     var showingResult by remember { mutableStateOf(false) }
+    var pendingNsfw by remember { mutableStateOf<ApiEndpoint?>(null) }
 
-    fun select(screen: Screen) {
-        selected = screen
-        showingResult = false
-    }
+    fun select(screen: Screen) { selected = screen; showingResult = false }
 
     val tabs = listOf(
         TabDef(Screen.CHAT, "AI Chat", Icons.Filled.Chat),
-        TabDef(Screen.DOWNLOADERS, "DL", Icons.Filled.Download),
-        TabDef(Screen.TOOLS, "Tools", Icons.Filled.Build),
+        TabDef(Screen.DOWNLOADERS, "Downloader", Icons.Filled.Download),
+        TabDef(Screen.TOOLS, "Studio", Icons.Filled.Build),
         TabDef(Screen.GALLERIES, "Gallery", Icons.Filled.Image),
-        TabDef(Screen.EARN, "Earn", Icons.Filled.Star),
-        TabDef(Screen.HISTORY, "History", Icons.Filled.AccountBalance)
+        TabDef(Screen.PROFILE, "Profile", Icons.Filled.AccountCircle)
     )
 
-    // Route one-shot events
-    LaunchedEffect(Unit) {
-        viewModel.insufficientEvent.collect { showInsufficient = true }
-    }
-    LaunchedEffect(Unit) {
-        viewModel.snackbar.collect { msg ->
-            scope.launch { snackbarHost.showSnackbar(msg) }
-        }
-    }
-
-    // Keep a CHAT endpoint loaded for the AI Chat tab (default: first AI endpoint)
-    LaunchedEffect(selected) {
-        if (selected == Screen.CHAT && activeEndpoint == null) {
-            val ep = EndpointCatalog.byCategory(ApiCategory.AI_CHAT).first()
-            activeEndpoint = ep
-            viewModel.loadChatFor(ep)
-        }
-    }
+    LaunchedEffect(Unit) { viewModel.insufficientEvent.collect { showInsufficient = true } }
+    LaunchedEffect(Unit) { viewModel.snackbar.collect { msg -> scope.launch { snackbarHost.showSnackbar(msg) } } }
 
     fun activate(endpoint: ApiEndpoint, param: String) {
+        if (endpoint.category == ApiCategory.NSFW && !confirmed18) { pendingNsfw = endpoint; return }
         activeEndpoint = endpoint
         when (viewModel.kindFor(endpoint)) {
             ResultKind.CHAT -> {
                 selected = Screen.CHAT
                 viewModel.loadChatFor(endpoint)
-                viewModel.sendChat(endpoint, param)
+                if (param.isNotBlank()) viewModel.sendChat(endpoint, param)
             }
-            ResultKind.IMAGE -> {
-                selected = Screen.GALLERIES
+            else -> {
                 showingResult = true
-                viewModel.loadGallery(endpoint, param)
-            }
-            ResultKind.TEXT -> {
-                selected = Screen.TOOLS
-                showingResult = true
-                viewModel.runTextTool(endpoint, param)
+                selected = if (endpoint.isGallery) Screen.GALLERIES else Screen.TOOLS
+                viewModel.runEndpoint(endpoint, param)
             }
         }
     }
 
-    // ---------- Ad overlay ----------
-    if (adVisible) {
-        BackHandler(enabled = true) { /* swallow back while ad is open */ }
-        AdWebView(
-            adUrl = ADSTERRA_URL,
-            onClose = {
-                adVisible = false
-                viewModel.rewardForAd()
-            },
-            modifier = Modifier.fillMaxSize()
-        )
+    // ---------- Overlays ----------
+    if (adsterraVisible) {
+        BackHandler(enabled = true) {}
+        AdWebView(adUrl = ADSTERRA_URL, onClose = { adsterraVisible = false; viewModel.rewardForAd() }, modifier = Modifier.fillMaxSize())
         return
     }
-
-    // ---------- Lightbox overlay ----------
-    if (lightboxUrl != null) {
-        LightboxScreen(url = lightboxUrl!!, onClose = { lightboxUrl = null })
-        return
-    }
-
-    // ---------- Insufficient sheet ----------
+    if (lightboxUrl != null) { LightboxScreen(url = lightboxUrl!!, onClose = { lightboxUrl = null }); return }
     if (showInsufficient) {
         InsufficientPointsSheet(
             onDismiss = { showInsufficient = false },
             onEarn = {
                 showInsufficient = false
-                adVisible = true
+                if (selected == Screen.GALLERIES && activeEndpoint?.category == ApiCategory.NSFW) adsterraVisible = true
+                else onEarnRewarded()
             }
+        )
+    }
+    if (pendingNsfw != null) {
+        NsfwGateSheet(
+            onConfirm = { confirmed18 = true; val ep = pendingNsfw; pendingNsfw = null; ep?.let { activate(it, "") } },
+            onDismiss = { pendingNsfw = null }
         )
     }
 
@@ -169,15 +171,32 @@ fun AaaAiApp(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        "Points Balance: $points 🪙",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Diamond, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        androidx.compose.foundation.layout.Spacer(Modifier.padding(4.dp))
+                        Text(text = "$points", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+                        Text(" pts", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 },
                 actions = {
-                    Switch(checked = isDark, onCheckedChange = onToggleTheme)
-                }
+                    val earnEnabled = !(selected == Screen.GALLERIES && activeEndpoint?.category == ApiCategory.NSFW)
+                    Surface(
+                        color = if (earnEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
+                        TextButton(onClick = onEarnRewarded, enabled = earnEnabled) {
+                            Icon(Icons.Filled.Star, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+                            Text("Earn +200")
+                        }
+                    }
+                    IconButton(onClick = { onToggleTheme(!isDark) }) {
+                        Icon(Icons.Filled.MenuBook, contentDescription = "Theme")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
             )
         },
         bottomBar = {
@@ -187,88 +206,60 @@ fun AaaAiApp(
                         selected = selected == tab.screen,
                         onClick = { select(tab.screen) },
                         icon = { Icon(tab.icon, contentDescription = tab.title) },
-                        label = { Text(tab.title) }
+                        label = { Text(tab.title) },
+                        colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primaryContainer)
                     )
                 }
             }
         },
         snackbarHost = { SnackbarHost(snackbarHost) }
     ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             when (selected) {
                 Screen.CHAT -> {
-                    activeEndpoint?.let { ep ->
+                    val aiEndpoints = EndpointCatalog.byCategory(ApiCategory.AI_CHAT)
+                    if (activeEndpoint == null) {
+                        LaunchedEffect(Unit) {
+                            val ep = aiEndpoints.first()
+                            activeEndpoint = ep
+                            viewModel.loadChatFor(ep)
+                        }
+                        Text("Loading…", modifier = Modifier.padding(16.dp))
+                    } else {
                         ChatScreen(
                             messages = chatMessages,
                             isTyping = isTyping,
-                            onSend = { viewModel.sendChat(ep, it) }
+                            onSend = { viewModel.sendChat(activeEndpoint!!, it) },
+                            endpoints = aiEndpoints,
+                            activeEndpoint = activeEndpoint!!,
+                            onPickEndpoint = { newEp -> activeEndpoint = newEp; viewModel.loadChatFor(newEp) }
                         )
-                    } ?: Text("Loading…", modifier = Modifier.padding(16.dp))
+                    }
                 }
+                Screen.DOWNLOADERS -> ToolGrid(category = ApiCategory.DOWNLOADERS, viewModel = viewModel, onActivate = { ep, p -> activate(ep, p) })
+                Screen.TOOLS -> ToolGrid(category = ApiCategory.UTILITIES, viewModel = viewModel, onActivate = { ep, p -> activate(ep, p) })
                 Screen.GALLERIES -> {
-                    if (showingResult && galleryUrl != null) {
+                    if (showingResult && result != null) {
                         val ep = activeEndpoint ?: EndpointCatalog.byCategory(ApiCategory.VIP_GALLERIES).first()
-                        GalleryScreen(
-                            url = galleryUrl,
+                        ResultScreen(
+                            result = result,
                             isLoading = isLoading,
                             endpoint = ep,
-                            onRefresh = { viewModel.clearGallery(); viewModel.loadGallery(ep, "") },
+                            onRefresh = { viewModel.runEndpoint(ep, "") },
                             onOpenLightbox = { lightboxUrl = it }
                         )
                     } else {
-                        EndpointGridScreen(
-                            category = ApiCategory.VIP_GALLERIES,
-                            viewModel = viewModel,
-                            onActivate = { ep, p -> activate(ep, p) }
-                        )
+                        ToolGrid(category = ApiCategory.VIP_GALLERIES, includeNsfw = true, viewModel = viewModel, onActivate = { ep, p -> activate(ep, p) })
                     }
                 }
-                Screen.DOWNLOADERS -> EndpointGridScreen(
-                    category = ApiCategory.DOWNLOADERS,
+                Screen.PROFILE -> ProfileScreen(
                     viewModel = viewModel,
-                    onActivate = { ep, p -> activate(ep, p) }
-                )
-                Screen.TOOLS -> {
-                    if (showingResult && toolText != null) {
-                        val ep = activeEndpoint ?: EndpointCatalog.byCategory(ApiCategory.UTILITIES).first()
-                        TextToolScreen(
-                            text = toolText,
-                            isLoading = isLoading,
-                            endpoint = ep,
-                            onRefresh = { viewModel.runTextTool(ep, "") }
-                        )
-                    } else {
-                        EndpointGridScreen(
-                            category = ApiCategory.UTILITIES,
-                            viewModel = viewModel,
-                            onActivate = { ep, p -> activate(ep, p) }
-                        )
-                    }
-                }
-                Screen.EARN -> {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text("Watch a compliant ad to earn +200 points.", Modifier.padding(16.dp))
-                        androidx.compose.material3.Button(onClick = { adVisible = true }) {
-                            Text("Earn Tokens (+200)")
-                        }
-                    }
-                }
-                Screen.HISTORY -> HistoryScreen(transactions)
-                else -> EndpointGridScreen(
-                    category = when (selected) {
-                        Screen.DOWNLOADERS -> ApiCategory.DOWNLOADERS
-                        else -> ApiCategory.UTILITIES
-                    },
-                    viewModel = viewModel,
-                    onActivate = { ep, p -> activate(ep, p) }
+                    authViewModel = authViewModel,
+                    profile = profile,
+                    points = points,
+                    transactions = transactions,
+                    isDark = isDark,
+                    onToggleTheme = onToggleTheme
                 )
             }
         }
@@ -276,27 +267,28 @@ fun AaaAiApp(
 }
 
 @Composable
-private fun EndpointGridScreen(
+private fun ToolGrid(
     category: ApiCategory,
     viewModel: MainViewModel,
-    onActivate: (ApiEndpoint, String) -> Unit
+    onActivate: (ApiEndpoint, String) -> Unit,
+    includeNsfw: Boolean = false
 ) {
-    val endpoints = EndpointCatalog.byCategory(category)
-    Column(modifier = Modifier.fillMaxSize()) {
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            contentPadding = PaddingValues(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            items(endpoints) { endpoint ->
-                EndpointCard(
-                    endpoint = endpoint,
-                    cost = viewModel.costFor(endpoint),
-                    onActivate = onActivate
-                )
-            }
+    val endpoints = if (includeNsfw) {
+        EndpointCatalog.endpoints.filter { it.category == category || it.category == ApiCategory.NSFW }
+    } else if (category == ApiCategory.UTILITIES) {
+        EndpointCatalog.endpoints.filter { it.category == ApiCategory.UTILITIES || it.category == ApiCategory.ANIME }
+    } else {
+        EndpointCatalog.byCategory(category)
+    }
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        contentPadding = PaddingValues(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        items(endpoints) { endpoint ->
+            EndpointCard(endpoint = endpoint, cost = viewModel.costFor(endpoint), onActivate = onActivate)
         }
     }
 }

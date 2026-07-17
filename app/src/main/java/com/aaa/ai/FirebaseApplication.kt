@@ -1,6 +1,7 @@
 package com.aaa.ai
 
 import android.app.Application
+import com.aaa.ai.data.AdMobManager
 import com.google.firebase.crashlytics.ktx.crashlytics
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.remoteconfig.ktx.remoteConfig
@@ -20,6 +21,9 @@ class FirebaseApplication : Application() {
         super.onCreate()
         runCatching {
             Firebase.crashlytics.setCrashlyticsCollectionEnabled(true)
+        }
+        runCatching {
+            AdMobManager.initialize(this)
         }
         runCatching {
             val config = Firebase.remoteConfig

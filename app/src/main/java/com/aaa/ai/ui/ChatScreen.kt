@@ -30,6 +30,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,14 +48,20 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import com.aaa.ai.data.ApiEndpoint
 import com.aaa.ai.data.model.ChatMessage
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     messages: List<ChatMessage>,
     isTyping: Boolean,
-    onSend: (String) -> Unit
+    onSend: (String) -> Unit,
+    endpoints: List<ApiEndpoint> = emptyList(),
+    activeEndpoint: ApiEndpoint? = null,
+    onPickEndpoint: (ApiEndpoint) -> Unit = {}
 ) {
+    var expanded by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val clipboard = LocalClipboardManager.current
     var input by remember { mutableStateOf("") }
@@ -78,6 +88,41 @@ fun ChatScreen(
             }
             if (isTyping) {
                 item { TypingIndicator() }
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (endpoints.isNotEmpty()) {
+                ExposedDropdownMenuBox(
+                    expanded = expanded,
+                    onExpandedChange = { expanded = it },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    TextField(
+                        value = activeEndpoint?.name ?: "Select model",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Model") },
+                        trailingIcon = { androidx.compose.material3.ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                        modifier = Modifier.menuAnchor()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
+                    ) {
+                        endpoints.forEach { ep ->
+                            DropdownMenuItem(
+                                text = { Text(ep.name) },
+                                onClick = { onPickEndpoint(ep); expanded = false }
+                            )
+                        }
+                    }
+                }
             }
         }
 
