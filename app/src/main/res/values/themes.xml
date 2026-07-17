@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Self-contained Compose app theme.
+        Material3 1.2+ no longer ships Theme.Material3.* style resources, and the
+        Material3 color attributes are declared locally in attrs.xml. We supply every
+        Material3 color attribute Compose's MaterialTheme reads, so the UI renders
+        with a proper M3 palette while staying resource-linkable.
+    -->
+    <style name="Theme.AAAAI" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">#6750A4</item>
+        <item name="android:navigationBarColor">#FFFBFE</item>
+        <item name="android:colorBackground">#FFFBFE</item>
+        <item name="android:colorPrimary">#6750A4</item>
+        <item name="android:colorPrimaryDark">#4F378B</item>
+        <item name="android:colorAccent">#625B71</item>
+
+        <item name="colorPrimary">#6750A4</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorPrimaryContainer">#EADDFF</item>
+        <item name="colorOnPrimaryContainer">#21005D</item>
+
+        <item name="colorSecondary">#625B71</item>
+        <item name="colorOnSecondary">#FFFFFF</item>
+        <item name="colorSecondaryContainer">#E8DEF8</item>
+        <item name="colorOnSecondaryContainer">#1D192B</item>
+
+        <item name="colorTertiary">#7D5260</item>
+        <item name="colorOnTertiary">#FFFFFF</item>
+        <item name="colorTertiaryContainer">#FFD8E4</item>
+        <item name="colorOnTertiaryContainer">#31111D</item>
+
+        <item name="colorSurface">#FFFBFE</item>
+        <item name="colorOnSurface">#1C1B1F</item>
+        <item name="colorSurfaceVariant">#E7E0EC</item>
+        <item name="colorOnSurfaceVariant">#49454F</item>
+        <item name="colorSurfaceInverse">#313033</item>
+        <item name="colorOnSurfaceInverse">#F4EFF4</item>
+
+        <item name="colorBackground">#FFFBFE</item>
+        <item name="colorOnBackground">#1C1B1F</item>
+
+        <item name="colorError">#B3261E</item>
+        <item name="colorOnError">#FFFFFF</item>
+        <item name="colorErrorContainer">#F9DEDC</item>
+        <item name="colorOnErrorContainer">#410E0B</item>
+
+        <item name="colorOutline">#79747E</item>
+        <item name="colorOutlineVariant">#CAC4D0</item>
+        <item name="colorScrim">#000000</item>
+    </style>
+</resources>

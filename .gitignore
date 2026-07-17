@@ -1,0 +1,28 @@
+# Built application files
+*.apk
+*.aar
+*.jar
+*.war
+*.ear
+
+# Gradle / build
+.gradle/
+build/
+*/build/
+/local.properties
+gradle.properties.local
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.DS_Store
+captures/
+
+# OS
+Thumbs.db
+
+# Signing
+*.jks
+*.keystore
