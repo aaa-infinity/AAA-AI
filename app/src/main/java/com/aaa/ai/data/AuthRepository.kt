@@ -70,11 +70,21 @@ class AuthRepository(private val context: Context) {
 
     suspend fun signInWithGoogle(data: Intent?): Result<FirebaseUser> {
         val credential = googleCredentialFrom(data) ?: return Result.failure(
-            IllegalArgumentException("Google sign-in failed")
+            IllegalStateException("Google sign-in was cancelled or failed to get an account.")
         )
         return runCatching {
             val result = linkOrSignIn(credential)
             result.user ?: throw IllegalStateException("No user returned")
+        }.onFailure { e ->
+            // Surface a clear message when the Google provider isn't enabled
+            // server-side (owner action required in Firebase Console).
+            val msg = e.message.orEmpty()
+            if ("CONFIGURATION_NOT_FOUND" in msg || "INVALID_CREDENTIAL" in msg || "key" in msg) {
+                throw IllegalStateException(
+                    "Google sign-in is not enabled for this project. Enable it in " +
+                        "Firebase Console → Authentication → Sign-in method → Google."
+                )
+            }
         }
     }
 
