@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Diamond
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -31,6 +32,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,6 +49,7 @@ import coil.compose.AsyncImage
 import com.aaa.ai.AuthViewModel
 import com.aaa.ai.MainViewModel
 import com.aaa.ai.data.PointsTransaction
+import com.aaa.ai.data.TelegramLink
 import com.aaa.ai.data.UserProfile
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -66,6 +69,10 @@ fun ProfileScreen(
     val rank = UserProfile.rankFor(profile.lifetimeEarned)
     var editingName by remember { mutableStateOf(false) }
     var nameDraft by remember { mutableStateOf(profile.name) }
+    var showLinkDialog by remember { mutableStateOf(false) }
+    var linkCode by remember { mutableStateOf("") }
+    var linkBusy by remember { mutableStateOf(false) }
+    var linkMsg by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val avatarPicker = rememberLauncherForActivityResult(
@@ -143,6 +150,13 @@ fun ProfileScreen(
             }
         }
 
+        item {
+            OutlinedButton(onClick = { showLinkDialog = true }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Filled.Chat, contentDescription = null)
+                Text("  Link Telegram")
+            }
+        }
+
         item { Text("Points History", style = MaterialTheme.typography.titleMedium) }
 
         if (transactions.isEmpty()) {
@@ -157,6 +171,43 @@ fun ProfileScreen(
                 Text("  Sign Out")
             }
         }
+    }
+
+    if (showLinkDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!linkBusy) showLinkDialog = false },
+            title = { Text("Link Telegram") },
+            text = {
+                Column {
+                    Text("Enter the code from @AAA_Login_bot (send /start there).")
+                    if (linkMsg != null) Text(linkMsg!!, modifier = Modifier.padding(top = 8.dp))
+                    OutlinedTextField(
+                        value = linkCode, onValueChange = { linkCode = it },
+                        label = { Text("Code") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        linkBusy = true; linkMsg = null
+                        scope.launch {
+                            TelegramLink.verify(ctx, linkCode).onSuccess {
+                                linkMsg = "Linked! chatId: $it"
+                            }.onFailure {
+                                linkMsg = it.message ?: "Verification failed"
+                            }
+                            linkBusy = false
+                        }
+                    },
+                    enabled = linkCode.isNotBlank() && !linkBusy
+                ) { Text("Verify") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLinkDialog = false }, enabled = !linkBusy) { Text("Close") }
+            }
+        )
     }
 }
 

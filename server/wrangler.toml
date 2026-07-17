@@ -1,0 +1,18 @@
+name = "aaa-ai-bot"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# Free tier: Workers + KV (1 GB free). No cron / queues / D1 needed.
+# Bot tokens and the Supabase anon key are stored as SECRETS (wrangler secret put),
+# never committed to source.
+
+# KV namespace is created with: wrangler kv namespace create aaa_kv
+# then paste the returned id into kv_namespaces below.
+kv_namespaces = [
+  { binding = "AAA_KV", id = "REPLACE_WITH_KV_ID" }
+]
+
+# Public base URL of this Worker (set after first deploy) used to register Telegram webhooks.
+# e.g. https://aaa-ai-bot.<yoursubdomain>.workers.dev
+variables = { PUBLIC_URL = "https://aaa-ai-bot.workers.dev" }
