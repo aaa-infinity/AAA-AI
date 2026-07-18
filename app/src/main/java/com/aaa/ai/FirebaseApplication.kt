@@ -22,7 +22,7 @@ class FirebaseApplication : Application() {
         super.onCreate()
         // Initialize Firebase explicitly so Auth / Firestore work at runtime
         // (the google-services plugin generates config but does not auto-init here).
-        runCatching { Firebase.initializeApp(this) }
+        runCatching { FirebaseApp.initializeApp(this) }
         runCatching {
             Firebase.crashlytics.setCrashlyticsCollectionEnabled(true)
         }

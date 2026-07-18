@@ -123,11 +123,11 @@ class AuthViewModel(
     private suspend fun runPoll(token: String) {
         _tgState.value = TelegramLoginState.Polling(token)
         val result = TelegramVerifyPoller.poll(appContext, token)
-        if (result != null && kotlin.coroutines.coroutineContext.isActive) {
+        if (result != null) {
             TelegramAuthSession.saveVerified(appContext, token, result.chatId, result.profile)
             _tgState.value = TelegramLoginState.Verified(result.chatId)
             _events.send(AuthEvent.TelegramVerified(result.chatId))
-        } else if (kotlin.coroutines.coroutineContext.isActive) {
+        } else {
             // Don't hard-fail: leave it resumable so returning from Telegram retries.
             _tgState.value = TelegramLoginState.Idle
         }
