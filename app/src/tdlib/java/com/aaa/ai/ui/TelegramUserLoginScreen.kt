@@ -101,3 +101,7 @@ fun TelegramUserLoginScreen(onBack: () -> Unit) {
         }
     }
 }
+
+// Register this screen with the bridge so LoginScreen can launch it only when
+// the TDLib source set is compiled (AAR present).
+com.aaa.ai.data.TdlibBridge.loginScreen = { onBack -> TelegramUserLoginScreen(onBack) }

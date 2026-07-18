@@ -122,7 +122,21 @@ android {
     }
 }
 
+// TDLib (Telegram USER-account login) is OPTIONAL: it needs the official native
+// AAR which is not on Maven Central. Drop `tdlib.aar` into app/libs/ and the
+// tdlib source set compiles + the feature activates. Without it, the app still
+// builds and runs (the user-account login button is hidden).
+val tdlibAar = file("libs/tdlib.aar")
+if (tdlibAar.exists()) {
+    sourceSets.getByName("main") {
+        java.srcDir("src/tdlib/java")
+    }
+}
+
 dependencies {
+    if (tdlibAar.exists()) {
+        implementation(files(tdlibAar))
+    }
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)
