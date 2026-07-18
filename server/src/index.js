@@ -556,6 +556,34 @@ async function tgApi(token, method, payload) {
   return r.json().catch(function () { return {}; });
 }
 
+/** Post a generated photo/video to the configured Telegram channel (if any).
+ *  Uses the bot token; the channel must have added the bot as an admin. */
+async function postMediaToChannel(env, type, b64, caption) {
+  const ch = env.CHANNEL_ID;
+  if (!ch || ch === "REPLACE_WITH_CHANNEL_ID") return false;
+  try {
+    const method = type === "video" ? "sendVideo" : "sendPhoto";
+    const media = type === "video" ? "video" : "photo";
+    const res = await tgApi(env.ADMIN_BOT_TOKEN, method, {
+      chat_id: ch,
+      [media]: "data:" + (type === "video" ? "video/mp4" : "image/jpeg") + ";base64," + b64,
+      caption: caption,
+      parse_mode: "HTML",
+    });
+    return !!res.ok;
+  } catch (e) { return false; }
+}
+
+/** Post a plain-text message to the Telegram channel (bot must be admin). */
+async function postToChannelText(env, text) {
+  const ch = env.CHANNEL_ID;
+  if (!ch || ch === "REPLACE_WITH_CHANNEL_ID") return false;
+  try {
+    const res = await tgApi(env.ADMIN_BOT_TOKEN, "sendMessage", { chat_id: ch, text: text, parse_mode: "HTML" });
+    return !!res.ok;
+  } catch (e) { return false; }
+}
+
 /** Post a message to the public AAA FREE AI channel. Returns success.
  *  Prefers the Free AI bot, which is the channel admin. */
 async function postToChannel(text) {
@@ -643,6 +671,48 @@ async function uploadVideoToYouTube(videoBuf, title, description, env) {
     });
     return up.ok || up.status === 201;
   } catch (e) { return false; }
+}
+
+// ---- Firebase Admin via service-account (pure Node, RS256 JWT) ----
+// Used to read real Crashlytics issues for the aaa-infinity-ai project.
+async function firebaseAccessToken(env, scope) {
+  try {
+    const sa = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || "{}");
+    if (!sa.private_key || !sa.client_email) return null;
+    const header = { alg: "RS256", typ: "JWT" };
+    const now = Math.floor(Date.now() / 1000);
+    const claim = {
+      iss: sa.client_email,
+      scope: scope || "https://www.googleapis.com/auth/firebase.messaging",
+      aud: "https://oauth2.googleapis.com/token",
+      iat: now, exp: now + 3500,
+    };
+    const enc = (o) => Buffer.from(JSON.stringify(o)).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const sign = require("crypto").createSign("RSA-SHA256");
+    const data = enc(header) + "." + enc(claim);
+    sign.update(data);
+    const sig = sign.sign(sa.private_key, "base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const jwt = data + "." + sig;
+    const res = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=" + jwt,
+    }).then(function (r) { return r.json(); });
+    return res.access_token || null;
+  } catch (e) { return null; }
+}
+
+/** Fetch recent Crashlytics issues for the app (real Firebase data). */
+async function crashlyticsIssues(env, limit) {
+  const token = await firebaseAccessToken(env, "https://www.googleapis.com/auth/firebase.crashlytics");
+  if (!token) return null;
+  const project = "projects/" + (env.FIREBASE_PROJECT_ID || "aaa-infinity-ai");
+  const url = "https://firebasecrashlytics.googleapis.com/v1/" + project +
+    "/issues?pageSize=" + (limit || 10) + "&orderBy=latestAppActiveUsersCount%20desc";
+  const res = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+  if (!res.ok) return { error: res.status + " " + (await res.text()).slice(0, 200) };
+  const data = await res.json();
+  return data.issues || [];
 }
 
 /** Generate a short promo video via json2video.com and return the MP4 as a buffer.
@@ -1160,17 +1230,23 @@ async function sendAdminMenu(chatId) {
   const b = (label, data) => ({ text: label, callback_data: data });
   const GRID = {
     inline_keyboard: [
-      [b("🎁 Drop Promo", "/promo"), b("🤖 Auto Post", "/autopost"), b("📊 Report", "/report")],
-      [b("💬 Ask Admin AI", "/ai"), b("📈 Credits", "/credits"), b("🗄 Get SQL", "/sql")],
+      [b("🎁 Promo", "/promo"), b("🤖 Auto Post", "/autopost"), b("📊 Report", "/report")],
+      [b("💬 Admin AI", "/ai"), b("📈 Credits", "/credits"), b("🗄 SQL", "/sql")],
       [b("🔗 YouTube", "/ytconnect"), b("📺 YT Stats", "/ytstats"), b("🔑 Swap Key", "/setkey")],
-      [b("📣 Broadcast", "/broadcast"), b("👥 User Stats", "/stats"), b("🎟 Key List", "/keys")],
+      [b("📣 Broadcast", "/broadcast"), b("👥 Stats", "/stats"), b("🎟 Keys", "/keys")],
       [b("⭐ Grant Me", "/grantme"), b("🏆 Grant User", "/grant"), b("➕ Add Admin", "/adminadd")],
+      [b("☁️ Cloudflare", "/cf"), b("🔐 Secrets", "/secrets"), b("🩺 Status", "/status")],
+      [b("🐞 Crashes", "/crashlog"), b("📦 Version", "/version"), b("🛒 Store DB", "/d1")],
+      [b("🗄 KV", "/kv"), b("🧹 Cleanup", "/cleanup"), b("📦 R2", "/r2")],
+      [b("🎨 Image", "/img"), b("🎬 Video", "/video"), b("⚙️ Config", "/config")],
+      [b("🔥 Firebase", "/firebase"), b("📣 Channel", "/channel"), b("🏠 Menu", "/menu")],
+      [b("🔥 Crashlytics", "/crashlytics"), b("🐞 App Crashes", "/crashlog"), b("⚙️ Config", "/config")],
     ],
   };
   const head =
-    "🤖 <b>Ari AI Control Center</b>\n" +
-    "Tap any tile — everything runs from the grid, no typing needed.\n\n" +
-    "🟣 <b>Growth</b> · 🔵 <b>Ops</b> · 🟠 <b>Media</b> · 🟢 <b>Users</b> · ⭐ <b>Access</b>";
+    "🛡 <b>Super AI — Admin Console</b>\n" +
+    "<i>Tap a tile. Everything is one tap away.</i>\n\n" +
+    "🟣 Growth · 🔵 Content · 🟠 Media · 🟢 Users · ⭐ Access · ☁️ Cloudflare";
   await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, head, { reply_markup: GRID });
 }
 
@@ -1180,8 +1256,8 @@ async function sendAdminMenu(chatId) {
 async function setupWebhooks(origin) {
   const base = (origin || (typeof URL !== "undefined" ? "" : "")) || "";
   const bots = [
-    { token: ENV.FREE_AI_BOT_TOKEN, path: "/telegram/free", commands: [{ command: "start", description: "Get the Ari AI app (AI is app-only)" }] },
-    { token: ENV.LOGIN_BOT_TOKEN, path: "/telegram/login", commands: [{ command: "start", description: "Sign in to the Ari AI app" }] },
+    { token: ENV.FREE_AI_BOT_TOKEN, path: "/telegram/free", commands: [{ command: "start", description: "Get the Super AI app (AI is app-only)" }] },
+    { token: ENV.LOGIN_BOT_TOKEN, path: "/telegram/login", commands: [{ command: "start", description: "Sign in to the Super AI app" }] },
     { token: ENV.ADMIN_BOT_TOKEN, path: "/telegram/admin", commands: [
       { command: "help", description: "Show admin commands" },
       { command: "keys", description: "List API key submissions" },
@@ -1189,6 +1265,21 @@ async function setupWebhooks(origin) {
       { command: "stats", description: "Users, points, pending codes" },
       { command: "setpoints", description: "Adjust a user balance" },
       { command: "broadcast", description: "Message all users" },
+      { command: "cf", description: "Cloudflare panel: app version, downloads, crashes" },
+      { command: "crashlog", description: "View captured app crash reports" },
+      { command: "version", description: "Show or set the published app version" },
+      { command: "kv", description: "Read a KV key value" },
+      { command: "cleanup", description: "Run maintenance / prune old data" },
+      { command: "d1", description: "App Store database stats" },
+      { command: "secrets", description: "List all Cloudflare secrets (masked)" },
+      { command: "status", description: "Worker + Cloudflare health check" },
+      { command: "r2", description: "List R2 objects under a prefix" },
+      { command: "img", description: "Generate an image via the Ari AI engine" },
+      { command: "video", description: "Render a promo video via the Ari AI engine" },
+      { command: "config", description: "Show full Cloudflare config (all secrets + resources)" },
+      { command: "firebase", description: "Show Firebase project info + channel" },
+      { command: "crashlytics", description: "Show real Crashlytics crash issues from Firebase" },
+      { command: "channel", description: "Show/posting to the Telegram channel" },
     ] },
   ];
   const out = [];
@@ -1373,6 +1464,16 @@ async function handleAdmin(update) {
   if (cmd === "/ai") {
     const q = args.slice(1).join(" ");
     if (!q) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "Usage: /ai &lt;question&gt;"); return; }
+    // Auto-generate media when the admin asks for an image or video.
+    const lower = q.toLowerCase();
+    if (/\b(image|picture|photo|draw|render|paint|make an? (image|picture))\b/.test(lower)) {
+      await handleAdmin({ message: { chat: { id: chatId }, text: "/img " + q, from: msg.from } });
+      return;
+    }
+    if (/\b(video|clip|promo|trailer|movie)\b/.test(lower)) {
+      await handleAdmin({ message: { chat: { id: chatId }, text: "/video " + q, from: msg.from } });
+      return;
+    }
     await tgAction(ENV.ADMIN_BOT_TOKEN, chatId);
     const stats = await gatherStats(ENV);
     const ctx = statsBlock(stats) + "\n\nPROVIDER HEALTH:\n" + (await providerHealthLine(ENV));
@@ -1681,6 +1782,303 @@ async function handleAdmin(update) {
       out += "• [" + htmlEscape(a.status) + "] " + htmlEscape(a.name) + " — " + (a.downloads || 0) + " dl · by " + htmlEscape(await getStoreUserName(ENV, a.owner_uid)) + "\n";
     }
     await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, out);
+    return;
+  }
+
+  // ---- Cloudflare control panel (KV / R2 / D1 / crashes / version) ----
+  if (cmd === "/cf") {
+    const vCode = (await ENV.AAA_KV.get("app_version_code")) || "?";
+    const vName = (await ENV.AAA_KV.get("app_version_name")) || "?";
+    const dl = (await ENV.AAA_KV.get("app_downloads")) || "0";
+    const crashes = await (async () => {
+      try { return (JSON.parse(await ENV.AAA_KV.get("crashlog:index") || "[]")).length; } catch (e) { return 0; }
+    })();
+    const origin = ENV.PUBLIC_ORIGIN || "https://aaa-ai-bot.aaateam.workers.dev";
+    const txt =
+      "☁️ <b>Cloudflare Panel</b>\n\n" +
+      "📦 App: <b>v" + vName + "</b> (code " + vCode + ")\n" +
+      "⬇️ Downloads: <b>" + dl + "</b>\n" +
+      "🐞 Captured crashes: <b>" + crashes + "</b>\n\n" +
+      "🌐 <b>Account</b> " + (ENV.CLOUDFLARE_ACCOUNT_ID || "0990a77a6f54b26e433668dc215320fb").slice(0, 8) + "…\n" +
+      "⚙️ Workers:\n" +
+      "  • aaa-ai-bot → " + origin + "\n" +
+      "  • aaa-store → https://aaa-store.aaateam.workers.dev\n" +
+      "🗄 KV: <code>AAA_KV</code> (631dab0f…)\n" +
+      "🛢 D1: <code>aaa_db</code> (b5be290f…)\n" +
+      "📦 R2: <code>aaa-assets</code>\n\n" +
+      "Commands:\n" +
+      "/secrets — list all Cloudflare secrets (masked)\n" +
+      "/crashlog — view app crash reports\n" +
+      "/version — show & set app version\n" +
+      "/kv &lt;key&gt; — read a KV value\n" +
+      "/cleanup — run maintenance (prune old data)\n" +
+      "/d1 — App Store DB stats\n" +
+      "/apps — recent store apps\n" +
+      "/review — pending store submissions";
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, txt);
+    return;
+  }
+
+  if (cmd === "/crashlog") {
+    let idx = [];
+    try { idx = JSON.parse(await ENV.AAA_KV.get("crashlog:index") || "[]"); } catch (e) {}
+    if (!idx.length) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ No crashes captured."); return; }
+    const limit = Math.min(parseInt(args[1] || "5", 10) || 5, 20);
+    for (const ts of idx.slice(0, limit)) {
+      const r = await ENV.AAA_KV.get("crashlog:" + ts);
+      if (!r) continue;
+      let rec; try { rec = JSON.parse(r); } catch (e) { continue; }
+      const dev = rec.device || {};
+      const txt =
+        "🐞 <b>Crash</b> " + new Date((rec.ts || ts) * 1).toISOString().slice(0, 19).replace("T", " ") + "\n" +
+        "📱 " + htmlEscape((dev.manufacturer || "?") + " " + (dev.model || "?")) + " (SDK " + (dev.sdk || "?") + ")\n" +
+        "💥 <code>" + htmlEscape((rec.message || "").slice(0, 200)) + "</code>\n" +
+        "🧵 " + htmlEscape(rec.thread || "?") + "\n" +
+        "<pre>" + htmlEscape((rec.stack || "").split("\n").slice(0, 6).join("\n").slice(0, 900)) + "</pre>";
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, txt);
+    }
+    return;
+  }
+
+  if (cmd === "/version") {
+    const cur = (await ENV.AAA_KV.get("app_version_name")) || "?";
+    const code = (await ENV.AAA_KV.get("app_version_code")) || "?";
+    const setVer = args[1];
+    if (setVer && /^[\w.]+$/.test(setVer)) {
+      await ENV.AAA_KV.put("app_version_name", setVer);
+      if (args[2] && /^\d+$/.test(args[2])) await ENV.AAA_KV.put("app_version_code", args[2]);
+      const ch = args.slice(3).join(" ");
+      if (ch) await ENV.AAA_KV.put("app_changelog", ch);
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ Version set to <b>v" + setVer + "</b> (code " + (args[2] || code) + ")");
+    } else {
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId,
+        "📦 Current: <b>v" + cur + "</b> (code " + code + ")\n\nSet with:\n/version &lt;name&gt; &lt;code&gt; &lt;changelog&gt;\ne.g. /version 2.2.4 11 Bug fixes");
+    }
+    return;
+  }
+
+  if (cmd === "/kv") {
+    const key = args[1];
+    if (!key) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "Usage: /kv &lt;key&gt;"); return; }
+    const val = await ENV.AAA_KV.get(key);
+    if (val === null) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "∅ No value for <code>" + htmlEscape(key) + "</code>"); return; }
+    const shown = val.length > 1500 ? val.slice(0, 1500) + "…" : val;
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🗄 <code>" + htmlEscape(key) + "</code>:\n<pre>" + htmlEscape(shown) + "</pre>");
+    return;
+  }
+
+  if (cmd === "/cleanup") {
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🧹 Running cleanup…");
+    const res = await cleanup(ENV);
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId,
+      "✅ Cleanup done:\n• history deleted: " + (res.history_deleted || 0) +
+      "\n• transactions deleted: " + (res.transactions_deleted || 0) +
+      "\n• R2 temp objects: " + (res.r2_deleted || 0));
+    return;
+  }
+
+  if (cmd === "/d1") {
+    if (!ENV.AAA_DB) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Store DB unavailable."); return; }
+    const apps = await ENV.AAA_DB.prepare("SELECT status, COUNT(*) c FROM store_apps GROUP BY status").all();
+    const users = await ENV.AAA_DB.prepare("SELECT COUNT(*) c FROM store_users").first();
+    let out = "🛒 <b>App Store DB</b>\nUsers: <b>" + ((users && users.c) || 0) + "</b>\nApps:\n";
+    for (const r of (apps && apps.results) || []) out += "• " + htmlEscape(r.status) + ": " + r.c + "\n";
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, out);
+    return;
+  }
+
+  // ---- Cloudflare secrets viewer (full values for owner chat, masked for others) ----
+  if (cmd === "/secrets") {
+    const ownerChat = (ENV.ADMIN_CHAT_ID && ENV.ADMIN_CHAT_ID !== "REPLACE_WITH_ADMIN_CHAT_ID") ? String(ENV.ADMIN_CHAT_ID) : null;
+    const isOwner = ownerChat && String(chatId) === ownerChat;
+    const names = [
+      "ADMIN_BOT_TOKEN", "ADMIN_CHAT_ID", "APP_SHARED_SECRET", "CHANNEL_ID", "FELIX_BASE",
+      "FREE_AI_BOT_TOKEN", "GEMINI_KEY", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET",
+      "GROQ_KEY", "HF_KEY", "JSON2VIDEO_KEY", "KIE_API_KEY", "KIE_HMAC_KEY",
+      "LOGIN_BOT_TOKEN", "PUBLIC_ORIGIN", "SUPABASE_ANON", "SUPABASE_SERVICE_ROLE",
+      "SUPABASE_URL", "YT_UPLOAD_SECRET", "TG_API_ID", "TG_API_HASH", "FIREBASE_WEB_API_KEY", "FIREBASE_PROJECT_ID", "FIREBASE_DB_URL", "FIREBASE_STORAGE_BUCKET", "FIREBASE_SERVICE_ACCOUNT",
+    ];
+    const mask = (v) => {
+      if (v == null || v === "") return "∅ (unset)";
+      const s = String(v);
+      if (s.length <= 8) return s[0] + "••••" + s.slice(-1);
+      return s.slice(0, 4) + "…" + s.slice(-4) + " (" + s.length + " chars)";
+    };
+    let out = "🔐 <b>Cloudflare Secrets</b> · aaa-ai-bot\n";
+    out += isOwner ? "👁 <b>Full values</b> (owner chat)\n\n" : "🫥 <b>Masked</b> (not owner chat — ask owner for full)\n\n";
+    for (const n of names) {
+      const val = ENV[n];
+      const disp = (isOwner && val != null && val !== "") ? String(val) : mask(val);
+      out += "• <code>" + n + "</code> = <code>" + htmlEscape(disp) + "</code>\n";
+    }
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, out);
+    return;
+  }
+
+  if (cmd === "/status") {
+    const checks = [];
+    let kvOk = false, r2Ok = false, d1Ok = false;
+    try { await ENV.AAA_KV.get("app_version_name"); kvOk = true; } catch (e) {}
+    try { await ENV.aaa_assets.list({ limit: 1 }); r2Ok = true; } catch (e) {}
+    try { await ENV.AAA_DB.prepare("SELECT 1").first(); d1Ok = true; } catch (e) {}
+    checks.push("🗄 KV: " + (kvOk ? "✅" : "❌"));
+    checks.push("📦 R2: " + (r2Ok ? "✅" : "❌"));
+    checks.push("🛢 D1: " + (d1Ok ? "✅" : "❌"));
+    const v = (await ENV.AAA_KV.get("app_version_name")) || "?";
+    const dl = (await ENV.AAA_KV.get("app_downloads")) || "0";
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId,
+      "🩺 <b>System Status</b>\n" + checks.join("\n") +
+      "\n\n📦 App v" + v + " · ⬇️ " + dl + " downloads\n☁️ Account 0990a77a…");
+    return;
+  }
+
+  if (cmd === "/r2") {
+    if (!ENV.aaa_assets) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ R2 unavailable."); return; }
+    const prefix = args[1] || "store/apks/";
+    const listed = await ENV.aaa_assets.list({ prefix: prefix, limit: 20 });
+    const objs = (listed && listed.objects) || [];
+    if (!objs.length) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "📦 No objects under <code>" + htmlEscape(prefix) + "</code>"); return; }
+    let out = "📦 <b>R2: " + htmlEscape(prefix) + "</b>\n";
+    for (const o of objs) out += "• " + htmlEscape(o.key) + " (" + ((o.size || 0) / 1024 / 1024).toFixed(1) + " MB)\n";
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, out);
+    return;
+  }
+
+  // ---- Admin AI: auto-generate image (→ admin chat + channel) ----
+  if (cmd === "/img" || cmd === "/image") {
+    const prompt = args.slice(1).join(" ").trim();
+    if (!prompt) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "Usage: /img &lt;prompt&gt;  — generates an image via the Ari AI engine"); return; }
+    await tgAction(ENV.ADMIN_BOT_TOKEN, chatId, "upload_photo");
+    try {
+      const url = pollinationsUrl(prompt, { width: 1024, height: 1024 });
+      const buf = await fetch(url).then(function (r) { return r.arrayBuffer(); });
+      if (!buf || !buf.byteLength) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Image generation failed. Try again."); return; }
+      const b64 = Buffer.from(buf).toString("base64");
+      const caption = "🎨 <b>" + htmlEscape(prompt.slice(0, 200)) + "</b>\n<i>Generated by the Ari AI engine</i>";
+      // 1) Admin chat
+      await tgApi(ENV.ADMIN_BOT_TOKEN, "sendPhoto", { chat_id: chatId, photo: "data:image/jpeg;base64," + b64, caption: caption, parse_mode: "HTML" });
+      // 2) Channel
+      const chOk = await postMediaToChannel(ENV, "photo", b64, caption);
+      if (chOk) await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ Also posted to channel.");
+    } catch (e) {
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Image error: " + htmlEscape(String(e && e.message || e)));
+    }
+    return;
+  }
+
+  // ---- Admin AI: auto-generate promo video (→ admin chat + channel + YouTube) ----
+  if (cmd === "/video" || cmd === "/vid") {
+    const prompt = args.slice(1).join(" ").trim();
+    if (!prompt) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "Usage: /video &lt;text&gt;  — renders a promo video via the Ari AI engine"); return; }
+    if (!ENV.JSON2VIDEO_KEY) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ No JSON2VIDEO_KEY set. Add it with /setkey json2video &lt;key&gt;"); return; }
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🎬 Rendering video… (this can take ~30s)");
+    await tgAction(ENV.ADMIN_BOT_TOKEN, chatId, "upload_video");
+    const buf = await generatePromoVideo(prompt, ENV);
+    if (!buf) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Video generation failed (no json2video credits or API error)."); return; }
+    const b64 = Buffer.from(buf).toString("base64");
+    const caption = "🎬 <b>" + htmlEscape(prompt.slice(0, 200)) + "</b>\n<i>Rendered by the Ari AI engine</i>";
+    // 1) Admin chat
+    const up = await tgApi(ENV.ADMIN_BOT_TOKEN, "sendVideo", { chat_id: chatId, video: "data:video/mp4;base64," + b64, caption: caption, parse_mode: "HTML" });
+    if (!up.ok) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Video rendered but Telegram upload failed (size limit)."); return; }
+    // 2) Channel
+    const chOk = await postMediaToChannel(ENV, "video", b64, caption);
+    if (chOk) await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ Also posted to channel.");
+    // 3) YouTube
+    if (ENV.YT_UPLOAD_SECRET) {
+      try {
+        const yt = await uploadVideoToYouTube(buf, "Super AI — " + prompt.slice(0, 60), "Made with Super AI (Ari AI engine). Get the app: https://aaa-ai-bot.aaateam.workers.dev/app.apk", ENV);
+        if (yt) await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ Also uploaded to YouTube.");
+      } catch (e) { /* ignore */ }
+    }
+    return;
+  }
+
+  // ---- Full Cloudflare configuration (all secret + resource types) ----
+  if (cmd === "/config") {
+    const ownerChat = (ENV.ADMIN_CHAT_ID && ENV.ADMIN_CHAT_ID !== "REPLACE_WITH_ADMIN_CHAT_ID") ? String(ENV.ADMIN_CHAT_ID) : null;
+    const isOwner = ownerChat && String(chatId) === ownerChat;
+    const secretNames = [
+      "ADMIN_BOT_TOKEN", "ADMIN_CHAT_ID", "APP_SHARED_SECRET", "CHANNEL_ID", "FELIX_BASE",
+      "FREE_AI_BOT_TOKEN", "GEMINI_KEY", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET",
+      "GROQ_KEY", "HF_KEY", "JSON2VIDEO_KEY", "KIE_API_KEY", "KIE_HMAC_KEY",
+      "LOGIN_BOT_TOKEN", "PUBLIC_ORIGIN", "SUPABASE_ANON", "SUPABASE_SERVICE_ROLE",
+      "SUPABASE_URL", "YT_UPLOAD_SECRET", "TG_API_ID", "TG_API_HASH", "FIREBASE_WEB_API_KEY", "FIREBASE_PROJECT_ID", "FIREBASE_DB_URL", "FIREBASE_STORAGE_BUCKET", "FIREBASE_SERVICE_ACCOUNT",
+    ];
+    const mask = (v) => {
+      if (v == null || v === "") return "∅ (unset)";
+      const s = String(v);
+      if (s.length <= 8) return s[0] + "••••" + s.slice(-1);
+      return s.slice(0, 4) + "…" + s.slice(-4) + " (" + s.length + ")";
+    };
+    let out = "⚙️ <b>Full Cloudflare Configuration</b>\n\n";
+    out += "👤 <b>Account</b>\n<code>0990a77a6f54b26e433668dc215320fb</code>\n\n";
+    out += "⚙️ <b>Workers</b>\n• aaa-ai-bot → https://aaa-ai-bot.aaateam.workers.dev\n• aaa-store → https://aaa-store.aaateam.workers.dev\n• compat: nodejs_compat · cron: 0 3 * * *\n\n";
+    out += "🗄 <b>KV</b> AAA_KV → <code>631dab0fc15e41a08abf896ae55af5a5</code>\n";
+    out += "🛢 <b>D1</b> aaa_db → <code>b5be290f-6416-44ac-af92-07e76b7d33ed</code>\n";
+    out += "📦 <b>R2</b> aaa-assets\n\n";
+    out += "🔐 <b>Secrets</b>" + (isOwner ? " (full)" : " (masked)") + "\n";
+    for (const n of secretNames) {
+      const val = ENV[n];
+      const disp = (isOwner && val != null && val !== "") ? String(val) : mask(val);
+      out += "• " + n + " = <code>" + htmlEscape(disp) + "</code>\n";
+    }
+    if (!isOwner) out += "\n<i>Send from the owner chat to see full values.</i>";
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, out);
+    return;
+  }
+
+  // ---- Firebase project info ----
+  if (cmd === "/firebase") {
+    const pid = ENV.FIREBASE_PROJECT_ID || "aaa-infinity-ai";
+    const db = ENV.FIREBASE_DB_URL || "https://aaa-infinity-ai-default-rtdb.asia-southeast1.firebasedatabase.app";
+    const bucket = ENV.FIREBASE_STORAGE_BUCKET || "aaa-infinity-ai.firebasestorage.app";
+    const ch = ENV.CHANNEL_ID || "(unset)";
+    let out = "🔥 <b>Firebase Project</b>\n\n" +
+      "🆔 Project: <code>" + htmlEscape(pid) + "</code>\n" +
+      "📊 Realtime DB: <code>" + htmlEscape(db) + "</code>\n" +
+      "🪣 Storage: <code>" + htmlEscape(bucket) + "</code>\n" +
+      "📦 App package: <code>com.aaa.ai</code>\n" +
+      "📣 Channel: <code>" + htmlEscape(ch) + "</code> (AAA FREE AI)\n\n" +
+      "Web API key is set (see /secrets as FIREBASE_WEB_API_KEY).\n" +
+      "Crashlytics reports are captured in-app → /crashlog.";
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, out);
+    return;
+  }
+
+  // ---- Channel info / test post ----
+  if (cmd === "/channel") {
+    const ch = ENV.CHANNEL_ID;
+    if (!ch || ch === "REPLACE_WITH_CHANNEL_ID") { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ CHANNEL_ID not set."); return; }
+    if (args[1]) {
+      // post the rest as a message to the channel
+      const text = args.slice(1).join(" ");
+      const ok = await postToChannelText(ENV, htmlEscape(text));
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, ok ? "✅ Posted to channel." : "⚠️ Failed (is the bot an admin of the channel?)");
+    } else {
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "📣 Channel: <code>" + htmlEscape(ch) + "</code> (AAA FREE AI)\nUse /channel &lt;message&gt; to post a test message.");
+    }
+    return;
+  }
+
+  // ---- Real Crashlytics issues (Firebase Admin) ----
+  if (cmd === "/crashlytics") {
+    if (!ENV.FIREBASE_SERVICE_ACCOUNT) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ No Firebase service account set."); return; }
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🔥 Fetching Crashlytics issues…");
+    const issues = await crashlyticsIssues(ENV, 10);
+    if (issues === null) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Could not read Crashlytics (token/missing)."); return; }
+    if (issues.error) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ " + htmlEscape(issues.error)); return; }
+    if (!issues.length) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ No Crashlytics issues. App is stable!"); return; }
+    for (const i of issues.slice(0, 10)) {
+      const title = (i.issueId || i.title || "crash");
+      const sub = i.subtitle || "";
+      const users = i.latestAppActiveUsersCount || 0;
+      const txt = "🔥 <b>" + htmlEscape(title) + "</b>\n" +
+        (sub ? htmlEscape(sub) + "\n" : "") +
+        "👥 " + users + " users affected\n" +
+        "📱 " + htmlEscape((i.deviceModel || i.androidVersion || "?")) + "\n" +
+        (i.crashlyticsLink ? "🔗 " + htmlEscape(i.crashlyticsLink) + "\n" : "");
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, txt);
+    }
     return;
   }
 
