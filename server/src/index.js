@@ -1618,10 +1618,10 @@ async function approveApp(env, id) {
   if (!env.AAA_DB) return;
   const app = await env.AAA_DB.prepare("SELECT id, owner_uid, name, package_name, apk_r2_key FROM store_apps WHERE id = ?").bind(id).first();
   if (!app) return;
-  // If this package already has a published version, supersede it (delete its R2 blob).
+  // If this package already has an approved version, supersede it (delete its R2 blob).
   if (app.package_name) {
     const prev = await env.AAA_DB.prepare(
-      "SELECT id, apk_r2_key FROM store_apps WHERE package_name = ? AND status = 'published' LIMIT 1"
+      "SELECT id, apk_r2_key FROM store_apps WHERE package_name = ? AND status = 'approved' LIMIT 1"
     ).bind(app.package_name).all();
     for (const p of (prev && prev.results) || []) {
       if (p.id !== app.id && p.apk_r2_key && env.aaa_assets) {
@@ -1631,7 +1631,7 @@ async function approveApp(env, id) {
     }
   }
   await env.AAA_DB.prepare(
-    "UPDATE store_apps SET status = 'published', approved_at = ? WHERE id = ?"
+    "UPDATE store_apps SET status = 'approved', approved_at = ? WHERE id = ?"
   ).bind(Date.now(), id).run();
   await env.AAA_DB.prepare(
     "UPDATE store_users SET apps_count = apps_count + 1 WHERE uid = ?"
