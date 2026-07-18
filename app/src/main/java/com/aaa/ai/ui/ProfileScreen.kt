@@ -292,6 +292,27 @@ fun ProfileScreen(
             }
         }
 
+        // Facebook community card.
+        item {
+            Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Chat, contentDescription = null, tint = androidx.compose.ui.graphics.Color(0xFF1877F2))
+                        Text("  Join our Facebook community", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 8.dp))
+                    }
+                    Text("Tips, updates and giveaways — follow Ari AI on Facebook.",
+                        style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+                    Button(
+                        onClick = { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://www.facebook.com/share/1BzWH5P2bF/"))) },
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                    ) {
+                        Icon(Icons.Filled.Chat, contentDescription = null)
+                        Text("  Follow on Facebook")
+                    }
+                }
+            }
+        }
+
         item { Text("Points History", style = MaterialTheme.typography.titleMedium) }
 
         if (transactions.isEmpty()) {

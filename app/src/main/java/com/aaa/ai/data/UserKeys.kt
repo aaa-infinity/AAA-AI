@@ -29,19 +29,23 @@ object UserKeys {
         val id: String,
         val label: String,
         val hint: String,
-        val guideUrl: String
+        val guideUrl: String,
+        val youtubeUrl: String
     ) {
         GEMINI(
             "gemini", "Google Gemini", "Paste your Gemini API key",
-            "https://aistudio.google.com/app/apikey"
+            "https://aistudio.google.com/app/apikey",
+            "https://www.youtube.com/results?search_query=how+to+get+google+gemini+api+key"
         ),
         GROQ(
             "groq", "Groq", "Paste your Groq API key",
-            "https://console.groq.com/keys"
+            "https://console.groq.com/keys",
+            "https://www.youtube.com/results?search_query=how+to+get+groq+api+key"
         ),
         HF(
             "hf", "Hugging Face", "Paste your HF token",
-            "https://huggingface.co/settings/tokens"
+            "https://huggingface.co/settings/tokens",
+            "https://www.youtube.com/results?search_query=how+to+create+hugging+face+access+token"
         );
 
         fun keyFor(prefs: Preferences): String? = when (this) {
@@ -76,4 +80,10 @@ object UserKeys {
     /** Best available key for a provider, or null. */
     suspend fun get(context: Context, provider: Provider): String? =
         context.keysStore.data.map { it[provider.pref()] }.first()
+
+    /** True if the user has supplied at least one provider key. */
+    suspend fun hasAnyKey(context: Context): Boolean =
+        context.keysStore.data.map { prefs ->
+            Provider.values().any { !prefs[it.pref()].isNullOrBlank() }
+        }.first()
 }

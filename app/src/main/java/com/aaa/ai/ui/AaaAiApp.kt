@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -322,6 +324,10 @@ fun AaaAiApp(
                 Screen.HOME -> HomeScreen(viewModel = viewModel, onActivate = { ep, p -> activate(ep, p) }, onEarn = onEarnRewarded)
                 Screen.CHAT -> {
                     val aiEndpoints = EndpointCatalog.byCategory(ApiCategory.AI_CHAT)
+                    var hasKey by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) {
+                        hasKey = com.aaa.ai.data.UserKeys.hasAnyKey(appCtx)
+                    }
                     if (activeEndpoint == null) {
                         LaunchedEffect(Unit) {
                             val ep = aiEndpoints.first()
@@ -330,6 +336,25 @@ fun AaaAiApp(
                         }
                         Text("Loading…", modifier = Modifier.padding(16.dp))
                     } else {
+                        if (!hasKey) {
+                            Card(
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Filled.Key, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    Text(
+                                        "Add your free API key to unlock AI chat. Watch the tutorial in Settings → Your API Keys.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.padding(start = 8.dp).weight(1f)
+                                    )
+                                }
+                            }
+                        }
                         ChatModelSelector(
                             selected = viewModel.chatProvider.value,
                             onSelect = { viewModel.chatProvider.value = it }

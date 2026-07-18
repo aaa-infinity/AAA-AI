@@ -3,6 +3,7 @@ package com.aaa.ai.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -14,6 +15,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -29,6 +31,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -78,7 +81,8 @@ fun ApiKeysScreen() {
                         status = if (ok) "✅ Saved & sent to admin bot." else "✅ Saved locally (admin notify later)."
                     }
                 },
-                onOpenGuide = { uriHandler.openUri(provider.guideUrl) }
+                onOpenGuide = { uriHandler.openUri(provider.guideUrl) },
+                onOpenVideo = { uriHandler.openUri(provider.youtubeUrl) }
             )
         }
 
@@ -99,14 +103,19 @@ fun ApiKeysScreen() {
 private fun ProviderKeyCard(
     provider: UserKeys.Provider,
     onSaved: (String) -> Unit,
-    onOpenGuide: () -> Unit
+    onOpenGuide: () -> Unit,
+    onOpenVideo: () -> Unit
 ) {
     var key by remember { mutableStateOf("") }
+    val ctx = LocalContext.current
+    val stored by UserKeys.keyFlow(ctx, provider).collectAsState(initial = null)
+    val hasKey = !stored.isNullOrBlank()
     Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(2.dp)) {
         Column(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.Key, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Text(provider.label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 8.dp).weight(1f))
+                if (hasKey) Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 IconButton(onClick = onOpenGuide) { Icon(Icons.Filled.OpenInNew, contentDescription = "Guide") }
             }
             OutlinedTextField(
@@ -119,6 +128,10 @@ private fun ProviderKeyCard(
                     Text("Save & Activate")
                 }
                 TextButton(onClick = onOpenGuide) { Text("How to get") }
+            }
+            TextButton(onClick = onOpenVideo, modifier = Modifier.align(Alignment.End)) {
+                Icon(Icons.Filled.PlayCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text("  Watch tutorial on YouTube")
             }
         }
     }

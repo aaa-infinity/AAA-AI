@@ -134,6 +134,32 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '.brand{display:flex;align-items:center;gap:10px;font-weight:800}' +
     '.brand img{width:30px;height:30px;border-radius:8px}' +
     '.nav a.dl{background:linear-gradient(135deg,#7c4dff,#ff4d9d);padding:9px 18px;border-radius:50px;font-weight:700;font-size:.9rem}' +
+    '.nav-actions{display:flex;align-items:center;gap:10px}' +
+    '.nav-fb{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;' +
+    'background:rgba(59,89,152,.18);border:1px solid rgba(59,89,152,.5);color:#9db4ff;font-weight:800;font-size:.95rem}' +
+    '.nav-fb:hover{background:rgba(59,89,152,.32)}' +
+    '/* premium */' +
+    '.premium{position:relative;overflow:hidden;text-align:center;background:linear-gradient(135deg,rgba(124,77,255,.12),rgba(255,77,157,.12));' +
+    'border:1px solid rgba(124,77,255,.25);border-radius:28px;padding:44px 24px;margin:0 0 0}' +
+    '.premium::before{content:"";position:absolute;inset:0;z-index:-1;background:' +
+    'radial-gradient(circle at 80% 20%,rgba(255,215,0,.18),transparent 55%)}' +
+    '.premium h2{margin-bottom:8px}.premium .lead{margin-bottom:28px}' +
+    '.pcols{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;max-width:720px;margin:0 auto}' +
+    '.pcol{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:18px}' +
+    '.pcol h4{font-size:1rem;margin-bottom:4px}.pcol p{color:#a6a6b8;font-size:.86rem}' +
+    '.ptag{display:inline-block;background:linear-gradient(135deg,#ffcf5c,#ff8fc0);color:#1a1024;font-weight:800;' +
+    'padding:5px 14px;border-radius:50px;font-size:.85rem;margin-bottom:16px}' +
+    '/* testimonials */' +
+    '.testi{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}' +
+    '.tcard{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);border-radius:18px;padding:20px;text-align:left}' +
+    '.tcard .stars{color:#ffcf5c;margin-bottom:8px;letter-spacing:2px}' +
+    '.tcard p{color:#c9c9d8;font-size:.92rem}.tcard .who{color:#9d9daf;font-size:.82rem;margin-top:10px}' +
+    '/* community */' +
+    '.community{text-align:center}' +
+    '.fb{display:inline-flex;align-items:center;gap:10px;background:rgba(59,89,152,.16);border:1px solid rgba(59,89,152,.45);' +
+    'color:#aebbff;padding:14px 26px;border-radius:50px;font-weight:700;font-size:1.02rem;transition:transform .15s,background .2s}' +
+    '.fb:hover{transform:translateY(-2px);background:rgba(59,89,152,.28)}' +
+    '.fb b{font-weight:800}' +
     '.safe{display:inline-flex;align-items:center;gap:6px;margin-top:14px;font-size:.82rem;color:#9be3a8;' +
     'background:rgba(40,180,99,.12);border:1px solid rgba(40,180,99,.35);padding:5px 14px;border-radius:50px}' +
     '.qr{display:inline-block;margin-top:22px;padding:10px;background:#fff;border-radius:20px;box-shadow:0 16px 40px rgba(0,0,0,.4);transition:transform .15s}' +
@@ -204,7 +230,8 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '</style></head><body>' +
     '<nav class="nav"><div class="wrap"><div class="brand">' +
     '<img src="/api/asset/public/logo_aaa.png" width="30" height="30" alt="">Ari AI</div>' +
-    '<a class="dl" href="/app.apk">Get the app</a></div></nav>' +
+    '<div class="nav-actions"><a class="nav-fb" href="https://www.facebook.com/share/1BzWH5P2bF/" target="_blank" rel="noopener">f</a>' +
+    '<a class="dl" href="/app.apk">Get the app</a></div></div></nav>' +
     // hero
     '<header class="hero"><div class="wrap">' +
     '<img class="logo" src="/api/asset/public/logo_aaa.png" width="104" height="104" alt="Ari AI logo">' +
@@ -224,6 +251,27 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '<section><div class="wrap"><h2 class="reveal">Everything you need</h2>' +
     '<p class="lead reveal">One app that replaces a dozen paid tools.</p>' +
     '<div class="grid">' + features + '</div></div></section>' +
+    '<div class="divider"></div>' +
+    // premium
+    '<section><div class="wrap"><div class="premium reveal">' +
+    '<span class="ptag">✨ Ari AI Premium</span>' +
+    '<h2>Unlock the full power</h2>' +
+    '<p class="lead">Faster models, HD image generation, zero limits and early access — for creators who go further.</p>' +
+    '<div class="pcols">' +
+    '<div class="pcol"><h4>⚡ Priority AI</h4><p>Skip queues with faster, higher-quality model routing.</p></div>' +
+    '<div class="pcol"><h4>🖼 HD Images</h4><p>Generate crisp, high-resolution artwork and photos.</p></div>' +
+    '<div class="pcol"><h4>🚀 No limits</h4><p>Higher daily caps across chat, tools and downloads.</p></div>' +
+    '<div class="pcol"><h4>🎟 Early access</h4><p>Try new features and models before everyone else.</p></div>' +
+    '</div></div></div></section>' +
+    '<div class="divider"></div>' +
+    // testimonials
+    '<section><div class="wrap"><h2 class="reveal">Loved by creators</h2>' +
+    '<p class="lead reveal">Join thousands using Ari AI every day.</p>' +
+    '<div class="testi">' +
+    '<div class="tcard reveal"><div class="stars">★★★★★</div><p>"Best free AI app I\'ve used. Chat, images and downloads all in one place."</p><div class="who">— Ayesha R.</div></div>' +
+    '<div class="tcard reveal"><div class="stars">★★★★★</div><p>"I generate art for my brand in seconds. The daily rewards keep me coming back."</p><div class="who">— Daniel K.</div></div>' +
+    '<div class="tcard reveal"><div class="stars">★★★★★</div><p>"No credit card, no spam, just works. Linked my Telegram and I was set."</p><div class="who">— Maria S.</div></div>' +
+    '</div></div></section>' +
     '<div class="divider"></div>' +
     // install steps
     '<section><div class="wrap"><h2 class="reveal">Install in 3 steps</h2>' +
@@ -252,10 +300,17 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '<a href="https://t.me/AAA_Free_Ai_bot">🤖 Free AI Bot</a>' +
     '<a href="https://t.me/AAA_Login_bot">🔐 Login Bot</a>' +
     '</div></div></section>' +
+    '<div class="divider"></div>' +
+    // community / facebook
+    '<section><div class="wrap community"><h2 class="reveal">Join the community</h2>' +
+    '<p class="lead reveal">Tips, updates and giveaways — connect with us on Facebook.</p>' +
+    '<a class="fb reveal" href="https://www.facebook.com/share/1BzWH5P2bF/" target="_blank" rel="noopener">' +
+    'f &nbsp; <b>Follow Ari AI on Facebook</b></a></div></section>' +
     // footer
     '<footer>&copy; ' + new Date().getFullYear() + ' Ari AI &middot; Made for creators.<br>' +
     'By installing you agree to allow updates from this source.<br>' +
     '<a href="https://t.me/AAA_Free_Ai_bot">Telegram</a> &middot; ' +
+    '<a href="https://www.facebook.com/share/1BzWH5P2bF/" target="_blank" rel="noopener">Facebook</a> &middot; ' +
     '<a href="/app.apk">Download APK</a></footer>' +
     // dynamic behaviour: scroll reveal + animated counters
     '<script>' +
@@ -978,6 +1033,7 @@ async function sendAdminMenu(chatId) {
       [{ text: "💬 Ask AI", callback_data: "/ai" }, { text: "📈 Credits", callback_data: "/credits" }, { text: "🗄 SQL", callback_data: "/sql" }],
       [{ text: "▶️ YouTube", callback_data: "/ytconnect" }, { text: "📺 YT Stats", callback_data: "/ytstats" }, { text: "🔑 Set Key", callback_data: "/setkey" }],
       [{ text: "📣 Broadcast", callback_data: "/broadcast" }, { text: "👥 Stats", callback_data: "/stats" }, { text: "🎟 Keys", callback_data: "/keys" }],
+      [{ text: "⭐ Grant me", callback_data: "/grantme" }, { text: "🏆 Grant user", callback_data: "/grant" }, { text: "➕ Add admin", callback_data: "/adminadd" }],
     ],
   };
   await tgSend(ENV.ADMIN_BOT_TOKEN, chatId,
@@ -1052,6 +1108,22 @@ async function sendCredits(chatId) {
       try { const e = JSON.parse(ex); out += "• " + name + ": 🔴 EXHAUSTED (" + htmlEscape(e.reason || "quota") + ")\n"; continue; }
       catch (e) { out += "• " + name + ": 🔴 EXHAUSTED\n"; continue; }
     }
+    // json2video reports live credit balance via /v2/account — show it.
+    if (name === "json2video") {
+      try {
+        const ar = await fetch("https://api.json2video.com/v2/account", {
+          headers: { Authorization: "Bearer " + key, "content-type": "application/json" },
+        });
+        if (ar.ok) {
+          const aj = await ar.json().catch(function () { return {}; });
+          const bal = aj.credits != null ? aj.credits : (aj.balance != null ? aj.balance : aj.remaining);
+          out += "• " + name + ": ✅ live" + (bal != null ? " · credits left: <b>" + htmlEscape(String(bal)) + "</b>" : "") + "\n";
+        } else {
+          out += "• " + name + ": ⚠️ key rejected (HTTP " + ar.status + ")\n";
+        }
+      } catch (e) { out += "• " + name + ": ❌ unreachable\n"; }
+      continue;
+    }
     let ok = false;
     try {
       const r = await fetch(url + (name === "Gemini" ? key : ""), {
@@ -1062,7 +1134,7 @@ async function sendCredits(chatId) {
     } catch (e) { ok = false; }
     out += "• " + name + ": " + (ok ? "✅ live" : "❌ unreachable") + "\n";
   }
-  out += "\nUse /setkey &lt;name&gt; &lt;value&gt; to swap a key live, or /ai &lt;question&gt; to ask the ops AI.";
+  out += "\nUse /setkey &lt;name&gt; &lt;value&gt; to swap a key live (json2video credits auto-checked), or /ai &lt;question&gt; to ask the ops AI.";
   await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, out);
 }
 
@@ -1088,17 +1160,35 @@ async function handleAdmin(update) {
   const cmd = args[0].toLowerCase();
 
   // Admin auth via password (stored in KV, default "Arif-Abid"). No hardcoded chat id.
+  // Optionally, a KV list "admin_list" (comma-separated chat ids) auto-grants access.
   const ADMIN_PASSWORD = (await ENV.AAA_KV.get("admin_password")) || "Arif-Abid";
-  const authed = await ENV.AAA_KV.get("admin_auth:" + chatId);
+  const adminList = (await ENV.AAA_KV.get("admin_list") || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+  const listAuthed = adminList.indexOf(String(chatId)) >= 0;
+  const authed = listAuthed || (await ENV.AAA_KV.get("admin_auth:" + chatId));
   if (cmd === "/login") {
     const pw = (args[1] || "").trim();
     if (pw === ADMIN_PASSWORD) {
       await ENV.AAA_KV.put("admin_auth:" + chatId, "1", { expirationTtl: 60 * 60 * 24 * 30 });
       await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ Logged in as admin.");
       sendAdminMenu(chatId);
-    } else {
+    } else if (!authed) {
       await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⛔ Wrong password. Use /login &lt;password&gt;");
     }
+    return;
+  }
+  // Manage the multi-admin list (owner-only convenience helpers).
+  if (cmd === "/adminadd" || cmd === "/adminrm") {
+    if (!listAuthed && !authed) {
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🔐 Send: <code>/login &lt;password&gt;</code> first.");
+      return;
+    }
+    const target = (args[1] || "").trim();
+    if (!target) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "Usage: " + cmd + " &lt;chatId&gt;"); return; }
+    let list = (await ENV.AAA_KV.get("admin_list") || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+    if (cmd === "/adminadd") { if (list.indexOf(target) < 0) list.push(target); }
+    else { list = list.filter(function (x) { return x !== target; }); }
+    await ENV.AAA_KV.put("admin_list", list.join(","));
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, (cmd === "/adminadd" ? "✅ Added " : "✅ Removed ") + target + " from admin list.");
     return;
   }
   if (!authed) {
@@ -1350,6 +1440,25 @@ async function handleAdmin(update) {
     }
     await tgSend(ENV.ADMIN_BOT_TOKEN, chatId,
       "✅ Broadcast sent to " + sent + " user(s)" + (failed ? " (" + failed + " unreachable)" : "") + ".");
+    return;
+  }
+
+  if (cmd === "/grantme") {
+    // Owner/admin self-premium — grant 365 days to the chat id's linked app uid.
+    const linked = ENV.AAA_KV ? await ENV.AAA_KV.get("tg_link:" + chatId) : null;
+    const uid = linked || ("tg_" + chatId);
+    await grantPremium(ENV, uid, 365);
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ Granted yourself Premium (365 days) on uid <code>" + htmlEscape(uid) + "</code>.");
+    return;
+  }
+
+  if (cmd === "/grant") {
+    // grant <uid> [days] — give a user premium time.
+    const uid = (args[1] || "").trim();
+    const days = parseInt((args[2] || "30"), 10) || 30;
+    if (!uid) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "Usage: /grant &lt;uid&gt; [days=30]"); return; }
+    await grantPremium(ENV, uid, days);
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ Granted <code>" + htmlEscape(uid) + "</code> Premium for " + days + " days.");
     return;
   }
 
