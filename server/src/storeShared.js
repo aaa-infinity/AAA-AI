@@ -338,5 +338,36 @@ export function escapeHtml(s) {
   return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+export function loginPage(user, opts) {
+  opts = opts || {};
+  const bot = opts.botUsername || "AAA_Login_bot";
+  const domain = opts.loginDomain || "app2629244753-login.tg.dev";
+  const verifyUrl = opts.authUrl || ((opts.botOrigin || "https://aaa-ai-bot.aaateam.workers.dev") + "/api/telegram-widget-verify");
+  const body = '<div class="form" style="max-width:460px;text-align:center">' +
+    '<h2 style="margin-bottom:6px">Sign in to the App Store</h2>' +
+    '<p style="color:#a6a6b8;margin-bottom:18px">Connect your Telegram account to publish and manage apps.</p>' +
+    '<div class="tg" style="margin:18px 0"><script async src="https://telegram.org/js/telegram-widget.js?22" ' +
+    'data-telegram-login="' + escapeHtml(bot) + '" data-size="large" data-userpic="false" data-radius="16" ' +
+    'data-auth-url="' + escapeHtml(verifyUrl) + '" data-request-access="write"></script></div>' +
+    '<div style="margin:14px 0;color:#6f6f82">or</div>' +
+    '<div style="text-align:left"><label>Sign in with a Telegram link code</label>' +
+    '<p style="color:#a6a6b8;font-size:.85rem;margin-bottom:10px">Open the Ari AI app → Settings → "Link this account", copy the 6-character code, paste it below.</p>' +
+    '<input id="code" placeholder="ABC123" maxlength="12" style="text-transform:uppercase;letter-spacing:2px;text-align:center">' +
+    '<button class="btn" id="codeBtn" style="margin-top:14px;width:100%;justify-content:center">Verify code</button>' +
+    '<p id="msg" style="margin-top:12px;color:#ff9b9b"></p></div>' +
+    '<script>' +
+    'function saveSess(t){try{localStorage.setItem("sess",t);}catch(e){}}' +
+    // The widget verify returns a real session token (type tg-store-login).
+    'window.addEventListener("message",function(e){if(e.data&&e.data.type==="tg-store-login"&&e.data.token){saveSess(e.data.token);location.href="/store";}});' +
+    'document.getElementById("codeBtn").addEventListener("click",async function(){' +
+    'var c=document.getElementById("code").value.trim();if(!c){document.getElementById("msg").textContent="Enter a code.";return;}' +
+    'var r=await fetch("/api/store/login",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({code:c})});' +
+    'var j=await r.json();if(j.ok){saveSess(j.token);location.href="/store";}else{document.getElementById("msg").textContent=j.error||"Invalid code.";}});' +
+    '</script></div>';
+  return storeShell("Sign in · Ari AI Store", body, user);
+}
+
+
+
 // Re-export json for workers that need it
 export { json };

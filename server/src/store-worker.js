@@ -6,7 +6,7 @@ import {
   dbUpdateAppStatus, dbSupersede, dbIncDownloads, dbListApps,
   pushPending, removePending, getPendingList, createSession, getSessionUid,
   requireUser, aiGenerateListing, aiModerate, storePage, storeDetailPage,
-  uploadPage, escapeHtml, json,
+  uploadPage, loginPage, escapeHtml, json,
 } from "./storeShared.js";
 import { askAi, adminAi, verifyTelegramWidget } from "./index.js";
 
@@ -56,6 +56,17 @@ async function handleStore(request, env) {
     const user = await dbUpsertUser(env, { uid });
     return new Response(uploadPage(user), { headers: { "content-type": "text/html; charset=utf-8" } });
   }
+  if (request.method === "GET" && (p === "/store/login" || p === "/store/login/")) {
+    const token = request.headers.get("x-session") || "";
+    const uid = await getSessionUid(env, token);
+    const user = uid ? await dbUpsertUser(env, { uid }) : null;
+    const origin = env.PUBLIC_ORIGIN || "https://aaa-ai-bot.aaateam.workers.dev";
+    return new Response(loginPage(user, {
+      botUsername: env.LOGIN_BOT_USERNAME || "AAA_Login_bot",
+      loginDomain: env.LOGIN_BOT_DOMAIN || "app2629244753-login.tg.dev",
+      authUrl: origin + "/api/store/widget-verify",
+    }), { headers: { "content-type": "text/html; charset=utf-8" } });
+  }
 
   // ---- Store API ----
   if (request.method === "POST" && p === "/api/store/login") {
@@ -73,6 +84,28 @@ async function handleStore(request, env) {
     await dbUpsertUser(env, { uid, username: profile?.username || "", display_name: profile?.display_name || "", photo_url: profile?.photo_url || "", is_admin: false });
     const token = await createSession(env, uid);
     return json({ ok: true, token: token, user: { uid } });
+  }
+  if (request.method === "POST" && p === "/api/store/widget-verify") {
+    // Telegram Login Widget posts signed fields here. We verify, create a
+    // session, then hand a TOKEN (not just the uid) back to the opener/WebView.
+    const body = await request.json().catch(() => ({}));
+    const ok = await verifyTelegramWidget(body);
+    if (!ok) {
+      return new Response("⛔ Login failed.", { status: 401, headers: { "content-type": "text/html; charset=utf-8" } });
+    }
+    const uid = String(body.id);
+    await dbUpsertUser(env, { uid, username: body.username || "", display_name: (body.first_name || "") + " " + (body.last_name || ""), photo_url: body.photo_url || "", is_admin: false });
+    const token = await createSession(env, uid);
+    const user = { uid, username: body.username, first_name: body.first_name, last_name: body.last_name, photo_url: body.photo_url };
+    const html = '<!doctype html><html><head><meta charset="utf-8"></head><body><script>' +
+      'var t=' + JSON.stringify(token) + ';var u=' + JSON.stringify(user) + ';' +
+      'try{if(window.opener)window.opener.postMessage({type:"tg-store-login",token:t,user:u},"*");}catch(e){}' +
+      'try{parent.postMessage({type:"tg-store-login",token:t,user:u},"*");}catch(e){}' +
+      'try{if(window.TgLoginBridge)window.TgLoginBridge.onResult(JSON.stringify({token:t,user:u}));}catch(e){}' +
+      'document.write("✅ Signed in as "+(u.username||u.uid)+". You can close this tab.");' +
+      'setTimeout(function(){try{window.close();}catch(e){}},800);' +
+      '</script></body></html>';
+    return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
   }
   if (request.method === "GET" && p === "/api/store/me") {
     const { uid, error } = await requireUser(request, env);
