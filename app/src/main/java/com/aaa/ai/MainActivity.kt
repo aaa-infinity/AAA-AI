@@ -1,6 +1,7 @@
 package com.aaa.ai
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -32,44 +33,59 @@ class MainActivity : ComponentActivity() {
     private val authViewModel: AuthViewModel by viewModels(factoryProducer = { factory })
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        AdMobManager.initialize(applicationContext)
-        CleanupManager.runStartupCleanup(applicationContext)
-        // Remind the user to claim their daily reward if notifications are enabled.
-        lifecycleScope.launch {
-            val enabled = com.aaa.ai.data.AppSettings.notificationsEnabled(applicationContext).first()
-            if (enabled && com.aaa.ai.data.DailyRewards.state(applicationContext).first().claimedToday.not()) {
-                delay(1500)
-                com.aaa.ai.data.NotificationHelper.notifyReward(applicationContext)
-            }
-        }
-        setContent {
-            val dark by ThemeState.isDark(applicationContext)
-                .collectAsStateWithLifecycle(initialValue = false)
-
-            MaterialTheme(
-                colorScheme = if (dark) aaaDarkColorScheme() else aaaLightColorScheme()
-            ) {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    AaaAiApp(
-                        viewModel = viewModel,
-                        authViewModel = authViewModel,
-                        isDark = dark,
-                        onToggleTheme = { lifecycleScope.launch { ThemeState.setDark(applicationContext, it) } },
-                        onEarnRewarded = { showRewardedAd() }
-                    )
+        try {
+            super.onCreate(savedInstanceState)
+            AdMobManager.initialize(applicationContext)
+            CleanupManager.runStartupCleanup(applicationContext)
+            // Remind the user to claim their daily reward if notifications are enabled.
+            lifecycleScope.launch {
+                try {
+                    val enabled = com.aaa.ai.data.AppSettings.notificationsEnabled(applicationContext).first()
+                    if (enabled && com.aaa.ai.data.DailyRewards.state(applicationContext).first().claimedToday.not()) {
+                        delay(1500)
+                        com.aaa.ai.data.NotificationHelper.notifyReward(applicationContext)
+                    }
+                } catch (t: Throwable) {
+                    Log.e("SuperAI", "reward reminder failed", t)
                 }
             }
+            setContent {
+                val dark by ThemeState.isDark(applicationContext)
+                    .collectAsStateWithLifecycle(initialValue = false)
+
+                MaterialTheme(
+                    colorScheme = if (dark) aaaDarkColorScheme() else aaaLightColorScheme()
+                ) {
+                    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                        AaaAiApp(
+                            viewModel = viewModel,
+                            authViewModel = authViewModel,
+                            isDark = dark,
+                            onToggleTheme = { lifecycleScope.launch { ThemeState.setDark(applicationContext, it) } },
+                            onEarnRewarded = { showRewardedAd() }
+                        )
+                    }
+                }
+            }
+        } catch (t: Throwable) {
+            // Last-resort guard: never let startup throw become a hard crash.
+            Log.e("SuperAI", "onCreate crashed", t)
+            reportCrash(t)
+            renderErrorUi(t)
         }
     }
 
     /** Show the preloaded AdMob rewarded ad; credit +200 only when the reward is earned. */
     private fun showRewardedAd() {
-        AdMobManager.show(
-            activity = this,
-            onReward = { viewModel.rewardForAd() },
-            onClosed = { /* re-preload handled by AdMobManager */ }
-        )
+        try {
+            AdMobManager.show(
+                activity = this,
+                onReward = { viewModel.rewardForAd() },
+                onClosed = { /* re-preload handled by AdMobManager */ }
+            )
+        } catch (t: Throwable) {
+            Log.e("SuperAI", "showRewardedAd failed", t)
+        }
     }
 
     /**
@@ -77,7 +93,39 @@ class MainActivity : ComponentActivity() {
      * Telegram app (the poll may have been cancelled while we were backgrounded).
      */
     override fun onResume() {
-        super.onResume()
-        authViewModel.resumeTelegramLogin()
+        try {
+            super.onResume()
+            authViewModel.resumeTelegramLogin()
+        } catch (t: Throwable) {
+            Log.e("SuperAI", "onResume failed", t)
+        }
+    }
+
+    private fun reportCrash(t: Throwable) {
+        val sw = java.io.StringWriter()
+        t.printStackTrace(java.io.PrintWriter(sw))
+        val app = application
+        if (app is FirebaseApplication) app.reportCrashExternal("main", t)
+    }
+
+    private fun renderErrorUi(t: Throwable) {
+        try {
+            setContent {
+                MaterialTheme(colorScheme = aaaDarkColorScheme()) {
+                    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                        androidx.compose.foundation.layout.Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = androidx.compose.ui.Alignment.Center
+                        ) {
+                            androidx.compose.material3.Text(
+                                "Something went wrong starting Super AI.\n\n${t.message ?: t.javaClass.simpleName}\n\nPlease reopen the app.",
+                                color = MaterialTheme.colorScheme.onBackground,
+                                modifier = Modifier.padding(24.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        } catch (ignored: Throwable) { }
     }
 }

@@ -16,8 +16,8 @@ android {
         applicationId = "com.aaa.ai"
         minSdk = 24
         targetSdk = 35
-        versionCode = 9
-        versionName = "2.2.2"
+        versionCode = 10
+        versionName = "2.2.3"
 
         // Load APP_SHARED_SECRET from local.properties (gitignored) so the secret
         // is never baked into source control or the public APK's source.
@@ -35,9 +35,10 @@ android {
             useSupportLibrary = true
         }
         ndk {
-            // Phones/tablets are ARM-only. Dropping x86/x86_64 shrinks the APK
-            // from ~140MB to a sane size and avoids install failures on devices.
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+            // Universal support: build for ALL common Android ABIs so the app
+            // installs on phones (ARM), Android emulators, Chrome OS and Intel
+            // tablets (x86/x86_64) — not just ARM devices.
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
         }
     }
 

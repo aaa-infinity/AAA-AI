@@ -66,6 +66,11 @@ class FirebaseApplication : Application() {
         }
     }
 
+    /** Public hook so [MainActivity] can report a caught startup crash. */
+    fun reportCrashExternal(threadName: String, throwable: Throwable) {
+        reportCrash(Thread.currentThread().apply { name = threadName }, throwable)
+    }
+
     private fun reportCrash(thread: Thread, throwable: Throwable) {
         val sw = java.io.StringWriter()
         throwable.printStackTrace(java.io.PrintWriter(sw))

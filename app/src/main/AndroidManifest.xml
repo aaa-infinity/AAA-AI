@@ -12,6 +12,17 @@
         android:maxSdkVersion="28"
         tools:ignore="ScopedStorage" />
 
+    <!-- Package visibility (API 30+): let the app detect/open browsers & Telegram. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+        <package android:name="org.telegram.messenger" />
+        <package android:name="org.thunderdog.challegram" />
+    </queries>
+
     <application
         android:name=".FirebaseApplication"
         android:allowBackup="false"

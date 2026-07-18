@@ -74,8 +74,8 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
 
   // Live stat counters (animate up on load).
   const statItems = [
+    [Math.max(stats.downloads || 0, 0), 'Downloads'],
     [Math.max(stats.users || 0, 0), 'Users'],
-    [Math.max(stats.points || 0, 0), 'Points earned'],
     [Math.max(stats.profiles || 0, 0), 'Telegram logins'],
     [6, 'AI tools'],
   ].map(function (s) {
@@ -106,7 +106,7 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
   const steps = [
     ['1', 'Download the APK', 'Tap the download button above to get the latest build.'],
     ['2', 'Allow install', 'When prompted, enable “Install from unknown sources” for your browser.'],
-    ['3', 'Open & sign in', 'Install, open Ari AI, and log in with Telegram to start.'],
+    ['3', 'Open & sign in', 'Install, open Super AI, and log in with Telegram to start.'],
   ].map(function (s) {
     return '<div class="step reveal"><div class="num">' + s[0] + '</div>' +
       '<div><h4>' + s[1] + '</h4><p>' + s[2] + '</p></div></div>';
@@ -236,6 +236,29 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '.statn{font-size:clamp(1.4rem,4vw,2rem);font-weight:800;' +
     'background:linear-gradient(135deg,#a98bff,#ff8fc0);-webkit-background-clip:text;background-clip:text;color:transparent}' +
     '.statl{color:#9d9daf;font-size:.8rem;margin-top:2px}' +
+    '/* comparison */' +
+    '.cmp{max-width:720px;margin:0 auto;border:1px solid rgba(255,255,255,.08);border-radius:18px;overflow:hidden}' +
+    '.cmp table{width:100%;border-collapse:collapse}' +
+    '.cmp th,.cmp td{padding:14px 16px;text-align:left;font-size:.92rem;border-top:1px solid rgba(255,255,255,.06)}' +
+    '.cmp thead th{font-size:.95rem;font-weight:800}' +
+    '.cmp td:first-child{color:#cfcfdd;font-weight:600}' +
+    '.cmp .yes{color:#7ee0a0;font-weight:800}' +
+    '.cmp .no{color:#ff8a8a;font-weight:800}' +
+    '.cmp .us{background:linear-gradient(135deg,rgba(124,77,255,.16),rgba(255,77,157,.16));color:#fff;font-weight:800}' +
+    '/* tabs showcase */' +
+    '.tabs{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:26px}' +
+    '.tab{padding:10px 20px;border-radius:50px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);' +
+    'color:#cfcfdd;font-weight:700;font-size:.92rem;cursor:pointer;transition:.15s}' +
+    '.tab.active{background:linear-gradient(135deg,#7c4dff,#ff4d9d);border-color:transparent;color:#fff}' +
+    '.panels{max-width:760px;margin:0 auto}' +
+    '.panel{display:none;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);border-radius:20px;padding:28px;text-align:left}' +
+    '.panel.active{display:block;animation:fade .35s ease}' +
+    '@keyframes fade{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}' +
+    '.panel h3{font-size:1.25rem;margin-bottom:6px}' +
+    '.panel p{color:#a6a6b8;font-size:.95rem;margin-bottom:14px}' +
+    '.panel ul{list-style:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}' +
+    '.panel li{display:flex;gap:8px;align-items:center;color:#d8d8e6;font-size:.9rem}' +
+    '.panel li b{color:#a98bff}' +
     '/* changelog */' +
     '.changelog{max-width:680px;margin:0 auto;background:rgba(255,255,255,.035);' +
     'border:1px solid rgba(255,255,255,.07);border-radius:18px;padding:22px 24px;color:#c9c9d8;font-size:.95rem}' +
@@ -274,6 +297,45 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '<section><div class="wrap"><h2 class="reveal">Everything you need</h2>' +
     '<p class="lead reveal">One app that replaces a dozen paid tools.</p>' +
     '<div class="grid">' + features + '</div></div></section>' +
+    '<div class="divider"></div>' +
+    // inside showcase (tabbed)
+    '<section><div class="wrap"><h2 class="reveal">What’s inside Super AI</h2>' +
+    '<p class="lead reveal">Six powerful spaces, one app.</p>' +
+    '<div class="tabs reveal">' +
+    '<div class="tab active" data-t="0">🤖 Chat</div>' +
+    '<div class="tab" data-t="1">🎨 Images</div>' +
+    '<div class="tab" data-t="2">⬇ Downloaders</div>' +
+    '<div class="tab" data-t="3">🛠 Studio</div>' +
+    '<div class="tab" data-t="4">🎁 Rewards</div>' +
+    '<div class="tab" data-t="5">🔒 Private</div></div>' +
+    '<div class="panels reveal">' +
+    '<div class="panel active"><h3>🤖 AI Chat</h3><p>Talk to the best free models — powered by the Ari AI engine routing Gemini, Groq, DeepSeek and more.</p>' +
+    '<ul><li><b>•</b> Multi-model chat</li><li><b>•</b> Image & file understanding</li><li><b>•</b> Save & continue</li><li><b>•</b> 100% free</li></ul></div>' +
+    '<div class="panel"><h3>🎨 Image Generation</h3><p>Turn a sentence into artwork, logos or photoreal scenes in seconds.</p>' +
+    '<ul><li><b>•</b> Text-to-image</li><li><b>•</b> Style presets</li><li><b>•</b> HD upscale (Premium)</li><li><b>•</b> One-tap share</li></ul></div>' +
+    '<div class="panel"><h3>⬇ Downloaders</h3><p>Grab videos and media from your favorite platforms with a single link.</p>' +
+    '<ul><li><b>•</b> Paste & download</li><li><b>•</b> Multiple qualities</li><li><b>•</b> Fast CDN</li><li><b>•</b> No account needed</li></ul></div>' +
+    '<div class="panel"><h3>🛠 Creative Studio</h3><p>Dozens of mini-tools: OCR, lyrics, facts, search, code help and more.</p>' +
+    '<ul><li><b>•</b> OCR scanner</li><li><b>•</b> Lyrics & facts</li><li><b>•</b> Web search</li><li><b>•</b> Code assist</li></ul></div>' +
+    '<div class="panel"><h3>🎁 Daily Rewards</h3><p>Earn points every day — build streaks and invite friends for bonus points.</p>' +
+    '<ul><li><b>•</b> Daily check-in</li><li><b>•</b> Streak bonuses</li><li><b>•</b> Referral points</li><li><b>•</b> Unlock perks</li></ul></div>' +
+    '<div class="panel"><h3>🔒 Private & Secure</h3><p>Your data stays yours. Sign in with Telegram — no spam, no tracking.</p>' +
+    '<ul><li><b>•</b> Telegram login</li><li><b>•</b> No email required</li><li><b>•</b> Local-first</li><li><b>•</b> Auto-updating APK</li></ul></div>' +
+    '</div></div></section>' +
+    '<div class="divider"></div>' +
+    // comparison
+    '<section><div class="wrap"><h2 class="reveal">Why Super AI</h2>' +
+    '<p class="lead reveal">Everything paid apps charge for — free, in one place.</p>' +
+    '<div class="cmp reveal"><table>' +
+    '<thead><tr><th>Feature</th><th class="us">Super AI</th><th>Paid apps</th></tr></thead>' +
+    '<tbody>' +
+    '<tr><td>AI chat (multiple models)</td><td class="yes">✓ Free</td><td class="no">✗ Subscription</td></tr>' +
+    '<tr><td>Image generation</td><td class="yes">✓ Free</td><td class="no">✗ Paywall</td></tr>' +
+    '<tr><td>Downloaders</td><td class="yes">✓ Free</td><td class="no">✗ Limited</td></tr>' +
+    '<tr><td>No ads paywall</td><td class="yes">✓ Yes</td><td class="no">✗ Often</td></tr>' +
+    '<tr><td>Daily rewards</td><td class="yes">✓ Yes</td><td class="no">✗ No</td></tr>' +
+    '<tr><td>Open app store</td><td class="yes">✓ Yes</td><td class="no">✗ No</td></tr>' +
+    '</tbody></table></div></div></section>' +
     '<div class="divider"></div>' +
     // premium
     '<section><div class="wrap"><div class="premium reveal">' +
@@ -363,6 +425,11 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     'var cta=document.querySelector(".sticky-cta");' +
     'if(cta){window.addEventListener("scroll",function(){' +
     'if(window.scrollY>600)cta.classList.add("show");else cta.classList.remove("show");},{"passive":true});}' +
+    'var tabs=document.querySelectorAll(".tab"),panels=document.querySelectorAll(".panel");' +
+    'tabs.forEach(function(t,i){t.addEventListener("click",function(){' +
+    'tabs.forEach(function(x){x.classList.remove("active")});' +
+    'panels.forEach(function(x){x.classList.remove("active")});' +
+    't.classList.add("active");if(panels[i])panels[i].classList.add("active");});});' +
     '})();' +
     '</script>' +
     '</body></html>';
@@ -971,14 +1038,14 @@ async function handleFreeAi(update) {
     // AI is app-only now. The Telegram bot is a companion that points users to
     // the Android app, where all AI features live.
     await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId,
-      "👋 <b>Hi! I'm the Ari AI companion bot.</b>\n\n" +
-      "🤖 <b>AI chat, images, downloaders & the creative studio now live inside the Ari AI app</b> — " +
+      "👋 <b>Hi! I'm the Super AI companion bot.</b>\n\n" +
+      "🤖 <b>AI chat, images, downloaders & the creative studio now live inside the Super AI app</b> — " +
       "the Telegram bot no longer answers AI questions.\n\n" +
       "📲 <b>Get the app (100% free):</b> https://aaa-ai-bot.aaateam.workers.dev/app.apk\n" +
       "🌐 Or browse our <b>App Store</b>: https://aaa-store.aaateam.workers.dev/store\n\n" +
       "Install the app to start using AI right away.",
       { reply_markup: { inline_keyboard: [[
-        { text: "📲 Download Ari AI", url: "https://aaa-ai-bot.aaateam.workers.dev/app.apk" },
+        { text: "📲 Download Super AI", url: "https://aaa-ai-bot.aaateam.workers.dev/app.apk" },
         { text: "🛍 App Store", url: "https://aaa-store.aaateam.workers.dev/store" },
       ]] } });
     return;
@@ -986,11 +1053,11 @@ async function handleFreeAi(update) {
   // Any non-command message: AI is app-only — redirect to the app.
   await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId,
     "🤖 <b>AI is in the app, not the bot.</b>\n\n" +
-    "The free Telegram bot can't answer AI questions — open the Ari AI app to chat, " +
+    "The free Telegram bot can't answer AI questions — open the Super AI app to chat, " +
     "generate images, use downloaders and the creative studio.\n\n" +
     "📲 Download: https://aaa-ai-bot.aaateam.workers.dev/app.apk",
     { reply_markup: { inline_keyboard: [[
-      { text: "📲 Get Ari AI (free)", url: "https://aaa-ai-bot.aaateam.workers.dev/app.apk" },
+      { text: "📲 Get Super AI (free)", url: "https://aaa-ai-bot.aaateam.workers.dev/app.apk" },
     ]] } });
 }
 
@@ -2559,14 +2626,16 @@ if (request.method === "GET" && url.pathname === "/api/search") {
     if (request.method === "GET" && (url.pathname === "/app.apk" || url.pathname === "/download/app.apk")) {
       const obj = env.aaa_assets ? await env.aaa_assets.get(APK_KEY) : null;
       if (!obj) {
-        return new Response("The Ari AI app is coming soon. Check back shortly!", {
+        return new Response("The Super AI app is coming soon. Check back shortly!", {
           status: 404, headers: { "content-type": "text/plain" },
         });
       }
+      // Increment a live download counter (best-effort, never block the download).
+      env.AAA_KV?.put("app_downloads", String((parseInt(await env.AAA_KV?.get("app_downloads") || "0", 10) || 0) + 1), { expirationTtl: 60 * 24 * 3600 }).catch(function () {});
       return new Response(obj.body, {
         headers: {
           "content-type": "application/vnd.android.package-archive",
-          "content-disposition": 'attachment; filename="Ari AI.apk"',
+          "content-disposition": 'attachment; filename="Super AI.apk"',
           "cache-control": "public, max-age=300",
         },
       });
@@ -2586,6 +2655,8 @@ if (request.method === "GET" && url.pathname === "/api/search") {
       const cached = await ENV.AAA_KV.get("live_stats");
       if (cached) { try { stats = JSON.parse(cached); } catch (e) {} }
       if (!stats) stats = await gatherStats(env);
+      const dlCount = parseInt(await ENV.AAA_KV.get("app_downloads") || "0", 10) || 0;
+      stats = Object.assign({}, stats, { downloads: dlCount });
       const qr = await makeQr(url.origin + "/app.apk");
       return new Response(downloadPage(available, versionName, sizeLabel, stats, changelog, qr), {
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=120" },
