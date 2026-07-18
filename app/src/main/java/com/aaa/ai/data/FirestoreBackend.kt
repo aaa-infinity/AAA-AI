@@ -21,7 +21,7 @@ import kotlinx.coroutines.tasks.await
  * When no user is signed in, the caller should fall back to the local
  * [PointsManager] / [ChatHistory] (DataStore) implementations.
  */
-class FirestoreBackend(private val db: FirebaseFirestore) {
+class FirestoreBackend(private val db: FirebaseFirestore, private val context: android.content.Context) {
 
     fun userDoc(uid: String) = db.collection("users").document(uid)
     fun historyCol(uid: String) = userDoc(uid).collection("history")
@@ -50,7 +50,14 @@ class FirestoreBackend(private val db: FirebaseFirestore) {
         }
     }
 
-    /** Reactive points balance for a user. */
+    /**
+     * Reactive points balance for a user.
+     *
+     * NOTE: The authoritative wallet lives in the Cloudflare Worker (D1). This
+     * Firestore listener is a best-effort display mirror only and is never
+     * written by the client (enforced by firestore.rules). Prefer
+     * [PointsApi.getBalance] for the authoritative value.
+     */
     fun pointsFlow(uid: String): Flow<Int> = callbackFlow {
         val reg = userDoc(uid).addSnapshotListener { snap, _ ->
             val pts = snap?.getLong("points")?.toInt() ?: PointsManager.DEFAULT_BALANCE
@@ -59,52 +66,21 @@ class FirestoreBackend(private val db: FirebaseFirestore) {
         awaitClose { reg.remove() }
     }
 
-    /** Add points (earn). Returns the new balance. */
-    suspend fun addPoints(uid: String, amount: Int, reason: String): Int {
-        val ref = userDoc(uid)
-        return db.runTransaction { txn ->
-            val snap = txn.get(ref)
-            val current = snap.getLong("points")?.toInt() ?: PointsManager.DEFAULT_BALANCE
-            val next = current + amount
-            txn.update(ref, "points", next)
-            // append a transaction log entry
-            val log = txCol(uid).document()
-            txn.set(log, mapOf(
-                "type" to "earn",
-                "amount" to amount,
-                "reason" to reason,
-                "timeMillis" to System.currentTimeMillis()
-            ))
-            next
-        }.await()
+    /**
+     * Credit points — server-authoritative (D1 via the Worker). The client never
+     * writes `points` to Firestore. Returns the new balance, or null on failure.
+     */
+    suspend fun addPoints(uid: String, amount: Int, reason: String): Int? {
+        return PointsApi.addPoints(context, uid, amount, reason)
     }
 
     /**
-     * Spend points. Returns true on success (and updates balance + log),
-     * false if the balance is insufficient (no writes performed).
+     * Spend points — server-authoritative (D1 via the Worker). Returns the new
+     * balance on success, or null if the spend failed (insufficient balance or
+     * network error). No client-side Firestore point writes occur.
      */
-    suspend fun spendPoints(uid: String, amount: Int, reason: String): Boolean {
-        val ref = userDoc(uid)
-        return try {
-            db.runTransaction { txn ->
-                val snap = txn.get(ref)
-                val current = snap.getLong("points")?.toInt() ?: PointsManager.DEFAULT_BALANCE
-                if (current < amount) {
-                    throw InsufficientException()
-                }
-                txn.update(ref, "points", current - amount)
-                val log = txCol(uid).document()
-                txn.set(log, mapOf(
-                    "type" to "spend",
-                    "amount" to amount,
-                    "reason" to reason,
-                    "timeMillis" to System.currentTimeMillis()
-                ))
-            }.await()
-            true
-        } catch (e: InsufficientException) {
-            false
-        }
+    suspend fun spendPoints(uid: String, amount: Int, reason: String): Int? {
+        return PointsApi.spendPoints(context, uid, amount, reason)
     }
 
     /** Append a chat/gallery/text history entry. */
@@ -153,6 +129,4 @@ class FirestoreBackend(private val db: FirebaseFirestore) {
             }
         awaitClose { reg.remove() }
     }
-
-    private class InsufficientException : Exception()
 }

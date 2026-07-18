@@ -111,6 +111,11 @@ fun AaaAiApp(
         val uid = user?.uid ?: "tg_${tgSession.chatId}"
         viewModel.setUserId(uid)
         viewModel.checkPremium(uid)
+        viewModel.refreshBalance()
+        // Link the Telegram user id to the app wallet so bot points are shared.
+        if (!user?.uid.isNullOrBlank() && !tgSession.chatId.isNullOrBlank()) {
+            com.aaa.ai.data.TelegramLinker.link(viewModel.appContext, tgSession.chatId!!, user!!.uid)
+        }
     }
 
     if (!authenticated) {

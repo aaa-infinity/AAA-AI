@@ -23,7 +23,7 @@ object KeySubmitter {
                 val conn = url.openConnection() as HttpURLConnection
                 conn.requestMethod = "POST"
                 conn.setRequestProperty("content-type", "application/json")
-                conn.setRequestProperty("x-app-secret", APP_SHARED_SECRET)
+                conn.setRequestProperty("x-app-secret", com.aaa.ai.BuildConfig.APP_SHARED_SECRET)
                 conn.connectTimeout = 15000
                 conn.readTimeout = 15000
                 conn.doOutput = true
@@ -39,6 +39,6 @@ object KeySubmitter {
             }.getOrDefault(false)
         }
 
-    // Must match APP_SHARED_SECRET on the Worker. If it ever changes server-side, update here.
-    private const val APP_SHARED_SECRET = "aaa-ai-shared-secret-2024"
+    // The shared secret now comes from BuildConfig (injected from local.properties
+    // at build time), not a hardcoded literal, so it is not visible in source or VCS.
 }

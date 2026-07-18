@@ -96,6 +96,10 @@ class PointsManager(private val context: Context) {
     val pointsFlow: Flow<Int> = context.dataStore.data
         .map { preferences -> preferences[USER_POINTS_KEY] ?: DEFAULT_BALANCE }
 
+    /** Current balance snapshot (synchronous read from DataStore). */
+    suspend fun currentBalance(): Int =
+        context.dataStore.data.first()[USER_POINTS_KEY] ?: DEFAULT_BALANCE
+
     /** Most-recent-first list of recorded transactions. */
     val transactionsFlow: Flow<List<PointsTransaction>> = context.dataStore.data
         .map { prefs ->

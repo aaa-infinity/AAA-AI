@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Box
@@ -45,18 +46,27 @@ fun AdWebView(
                     settings.domStorageEnabled = true
                     settings.loadWithOverviewMode = true
                     settings.useWideViewPort = true
+                    // Security: never allow the ad WebView to read local files or
+                    // content providers, and never load mixed (HTTP) content.
+                    settings.allowFileAccess = false
+                    settings.allowContentAccess = false
+                    settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                     webViewClient = object : WebViewClient() {
                         override fun shouldOverrideUrlLoading(
                             view: WebView,
                             request: WebResourceRequest
                         ): Boolean {
                             val url = request.url.toString()
-                            // Let ordinary web navigation continue inside the view.
-                            if (url.startsWith("http://") || url.startsWith("https://")) {
+                            // Security: only allow HTTPS navigation inside the WebView.
+                            // Block http://, file://, javascript:, intent:, etc. so the
+                            // ad surface can never reach local files or trap the user.
+                            if (url.startsWith("https://")) {
                                 return false
                             }
-                            // Custom platform intents -> hand off to the system safely.
-                            routeExternal(context, url)
+                            // Custom platform intents (https only) -> hand off to the system safely.
+                            if (url.startsWith("http://")) {
+                                routeExternal(context, url)
+                            }
                             return true
                         }
                     }
@@ -79,8 +89,11 @@ fun AdWebView(
     }
 }
 
-/** Route a non-http(s) intent string through the system chooser. */
+/** Route an https link through the system chooser. Only http/https schemes are
+ *  permitted; anything else (file://, javascript:, intent:, etc.) is ignored to
+ *  avoid launching arbitrary apps or exposing local data. */
 private fun routeExternal(context: Context, url: String) {
+    if (!url.startsWith("http://") && !url.startsWith("https://")) return
     try {
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

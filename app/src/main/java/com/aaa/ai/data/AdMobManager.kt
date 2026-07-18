@@ -18,20 +18,22 @@ import kotlinx.coroutines.flow.callbackFlow
 /**
  * Official Google AdMob Rewarded Ads manager.
  *
- * - App ID: ca-app-pub-5356761432305414~6197972179
- * - Rewarded Unit: ca-app-pub-5356761432305414/1633443576
+ * Uses the Google sample test IDs so the app runs without a published AdMob
+ * account. The App ID MUST match the one declared in AndroidManifest.xml.
+ * - App ID: ca-app-pub-3940256099942544~3347511713 (test)
+ * - Rewarded Unit: ca-app-pub-3940256099942544/5224354917 (test)
  *
  * The rewarded ad is preloaded in the background so it is ready the moment the
- * user taps "Earn Tokens (+200)". On a successful [onUserEarnedRewardListener]
- * callback the caller credits +200 points.
+ * user taps "Earn Tokens (+200)". Points are credited ONLY when the user
+ * actually earns the reward (onUserEarnedRewardListener).
  *
  * Used on safe (non-NSFW) tabs only. The 18+ NSFW tab uses the separate
  * Adsterra WebView flow (see [com.aaa.ai.ui.AdWebView]).
  */
 object AdMobManager {
 
-    const val ADMOB_APP_ID = "ca-app-pub-5356761432305414~6197972179"
-    const val REWARDED_AD_UNIT = "ca-app-pub-5356761432305414/1633443576"
+    const val ADMOB_APP_ID = "ca-app-pub-3940256099942544~3347511713"
+    const val REWARDED_AD_UNIT = "ca-app-pub-3940256099942544/5224354917"
 
     private var rewardedAd: RewardedAd? = null
     private var appContext: Context? = null

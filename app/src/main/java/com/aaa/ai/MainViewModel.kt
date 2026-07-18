@@ -7,6 +7,7 @@ import com.aaa.ai.data.ApiEndpoint
 import com.aaa.ai.data.ApiRepository
 import com.aaa.ai.data.AnalyticsLogger
 import com.aaa.ai.data.FirestoreBackend
+import com.aaa.ai.data.PointsApi
 import com.aaa.ai.data.PointsManager
 import com.aaa.ai.data.ResultKind
 import com.aaa.ai.data.UserProfile
@@ -28,14 +29,15 @@ import kotlinx.coroutines.launch
 /**
  * Central view model for the points economy + all endpoint interactions.
  *
- * Points are cloud-synced in Firestore when a user is signed in; otherwise they
- * fall back to the local DataStore [PointsManager] (anonymous / offline).
+ * Points are SERVER-AUTHORITATIVE: all earn/spend mutations go through the
+ * Cloudflare Worker (D1) via [PointsApi], and the live balance is read from the
+ * server. When signed out, the local DataStore [PointsManager] is used instead.
  */
 class MainViewModel(
     private val pointsManager: PointsManager,
     private val backend: FirestoreBackend,
     private val repository: ApiRepository,
-    private val appContext: android.content.Context
+    val appContext: android.content.Context
 ) : ViewModel() {
 
     /** Active user id (null when signed out). Drives backend routing. */
@@ -44,14 +46,35 @@ class MainViewModel(
 
     fun setUserId(uid: String?) { _userId.value = uid }
 
+    /**
+     * Live authoritative balance for the signed-in user (sourced from the Worker /
+     * D1). Null until the first successful fetch, then held here so mutations are
+     * reflected instantly. Falls back to the local DataStore wallet when signed out.
+     */
+    private val _serverPoints = MutableStateFlow<Int?>(null)
+
     /** Reactive points balance from the correct backend based on auth state. */
-    val userPoints: StateFlow<Int> = _userId.flatMapLatest { uid ->
-        if (uid != null) backend.pointsFlow(uid) else pointsManager.pointsFlow
+    val userPoints: StateFlow<Int> = combine(_userId, _serverPoints, pointsManager.pointsFlow) { uid, server, local ->
+        when {
+            uid != null && server != null -> server
+            uid != null -> PointsManager.DEFAULT_BALANCE
+            else -> local
+        }
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = PointsManager.DEFAULT_BALANCE
     )
+
+    /** Refresh the authoritative balance from the server for the active user. */
+    fun refreshBalance() {
+        val uid = _userId.value ?: return
+        viewModelScope.launch {
+            val bal = PointsApi.getBalance(appContext, uid)
+            if (bal != null) _serverPoints.value = bal
+        }
+    }
+
 
     /** Transaction log (Firestore when signed in, else local DataStore). */
     val transactions: Flow<List<PointsTransaction>> = _userId.flatMapLatest { uid ->
@@ -111,8 +134,12 @@ class MainViewModel(
     fun rewardForAd() {
         viewModelScope.launch {
             val uid = _userId.value
-            if (uid != null) backend.addPoints(uid, REWARD_PER_AD, "ad")
-            else pointsManager.addPoints(REWARD_PER_AD, "ad")
+            if (uid != null) {
+                val bal = backend.addPoints(uid, REWARD_PER_AD, "ad")
+                if (bal != null) _serverPoints.value = bal
+            } else {
+                pointsManager.addPoints(REWARD_PER_AD, "ad")
+            }
             UserProfile.addLifetime(appContext, REWARD_PER_AD.toLong())
             AnalyticsLogger.logAdWatched(appContext)
             AnalyticsLogger.logPointsEarned(REWARD_PER_AD, "ad")
@@ -160,8 +187,12 @@ class MainViewModel(
                 val claimed = com.aaa.ai.data.ReferralManager.claim(appContext, id)
                 if (claimed > 0) {
                     val uid = _userId.value
-                    if (uid != null) backend.addPoints(uid, claimed, "referral")
-                    else pointsManager.addPoints(claimed, "referral")
+                    if (uid != null) {
+                        val bal = backend.addPoints(uid, claimed, "referral")
+                        if (bal != null) _serverPoints.value = bal
+                    } else {
+                        pointsManager.addPoints(claimed, "referral")
+                    }
                     UserProfile.addLifetime(appContext, claimed.toLong())
                     AnalyticsLogger.logPointsEarned(claimed, "referral")
                     _snackbar.send("Referral reward: +$claimed pts! Thanks for inviting friends.")
@@ -250,9 +281,11 @@ class MainViewModel(
     /** Deduct cost; emit insufficient event + analytics if too low. Returns success. */
     private suspend fun preDeduct(endpoint: ApiEndpoint, cost: Int): Boolean {
         val uid = _userId.value
-        val ok = if (uid != null) backend.spendPoints(uid, cost, endpoint.id)
-        else pointsManager.deductPoints(cost, endpoint.id)
+        val newBalance = if (uid != null) backend.spendPoints(uid, cost, endpoint.id)
+        else if (pointsManager.deductPoints(cost, endpoint.id)) pointsManager.currentBalance() else null
+        val ok = newBalance != null
         if (ok) {
+            if (uid != null) _serverPoints.value = newBalance
             AnalyticsLogger.logPointsSpent(cost, endpoint.id)
             AnalyticsLogger.logEndpointUsed(endpoint.id)
         } else {

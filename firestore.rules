@@ -1,22 +1,14 @@
 rules_version = '2';
 
 // ===============================================================
-// Assumed Data Model
-// ===============================================================
-//
-// users/{uid}                          -> user wallet + profile
-//   fields: points (number, required), email (string), displayName (string),
-//           photoURL (string), createdAt (timestamp)
-//   - points only writable by the owner; immutable for everyone else.
-//
-// users/{uid}/history/{id}             -> chat / gallery / text entries
-//   fields: endpointId (string), text (string), isUser (bool), timestamp (number), kind (string)
-//   - create/read/update/delete only by owner.
-//
-// users/{uid}/transactions/{id}        -> points earn/spend log
-//   fields: type (string), amount (number), reason (string), timeMillis (number)
-//   - create by owner only (append-only log); no updates/deletes.
-//
+// AAA-AI Firestore Security Rules
+// ---------------------------------------------------------------
+// Points are SERVER-AUTHORITATIVE. The Android app NEVER writes
+// `points` or `premium_until` directly — all mutations go through
+// the Cloudflare Worker (/api/points/add, guarded by APP_SHARED_SECRET,
+// with D1 as the authoritative wallet). Firestore is a read-only
+// display mirror for the client. The client may only create/read and
+// edit its own PROFILE fields.
 // ===============================================================
 
 service cloud.firestore {
@@ -28,8 +20,14 @@ service cloud.firestore {
     function isOwner(uid) {
       return isAuthenticated() && request.auth.uid == uid;
     }
+
+    // Fields the client is permitted to write on its own profile.
+    function profileFields() {
+      return ['email', 'displayName', 'photoURL'];
+    }
+
     function isValidUser(data) {
-      return data.keys().hasOnly(['points','email','displayName','photoURL','createdAt'])
+      return data.keys().hasOnly(['points', 'email', 'displayName', 'photoURL', 'createdAt', 'premium_until'])
         && (data.points is int || data.points is float)
         && data.email is string && data.email.size() < 200
         && data.displayName is string && data.displayName.size() < 100
@@ -37,23 +35,38 @@ service cloud.firestore {
     }
 
     match /users/{uid} {
+      // Reads: owner only.
       allow read: if isOwner(uid);
+
+      // Create: only the owner, with a valid initial shape.
       allow create: if isOwner(uid) && isValidUser(request.resource.data);
-      allow update: if isOwner(uid) && request.resource.data.keys().hasOnly(['points','email','displayName','photoURL'])
-        && request.resource.data.points is int;
+
+      // Update: client may ONLY change profile fields. It must NOT touch
+      // points, premium_until, or createdAt. Server-side writers use
+      // admin credentials (bypass these rules) so the Worker mirror still works.
+      allow update: if isOwner(uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(profileFields())
+        && (request.resource.data.email is string && request.resource.data.email.size() < 200)
+        && (request.resource.data.displayName is string && request.resource.data.displayName.size() < 100)
+        && (request.resource.data.photoURL is string && request.resource.data.photoURL.size() < 500);
+
+      // Deletes are never permitted from clients.
+      allow delete: if false;
 
       match /history/{id} {
-        allow read, write: if isOwner(uid);
+        // Client may only append its own history; it cannot edit/delete entries.
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && request.resource.data.keys().hasOnly(['endpointId', 'text', 'isUser', 'timestamp', 'kind'])
+          && request.resource.data.text is string && request.resource.data.text.size() < 20000
+          && request.resource.data.timestamp is int;
+        allow update, delete: if false;
       }
 
       match /transactions/{id} {
+        // Read-only on the client. Transactions are written server-side.
         allow read: if isOwner(uid);
-        allow create: if isOwner(uid)
-          && request.resource.data.keys().hasOnly(['type','amount','reason','timeMillis'])
-          && request.resource.data.type in ['earn','spend']
-          && request.resource.data.amount is int
-          && request.resource.data.reason is string && request.resource.data.reason.size() < 100;
-        allow update, delete: if false;
+        allow create, update, delete: if false;
       }
     }
   }

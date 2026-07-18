@@ -18,6 +18,10 @@ const TELEGRAM_API = "https://api.telegram.org/bot";
 const APK_KEY = "app/aaa-ai.apk";
 // Public "AAA FREE AI" Telegram channel (overridable via ENV.CHANNEL_ID secret).
 const DEFAULT_CHANNEL_ID = "-1003932377927";
+// Points charged per free-AI bot message (deducted server-side from the linked wallet).
+const BOT_MSG_COST = 10;
+// Daily free messages a Telegram user gets before points start being charged.
+const BOT_DAILY_FREE = 15;
 
 // Mirror schema SQL, embedded so the admin bot can send it to a phone.
 const MIRROR_SQL = `
@@ -270,7 +274,6 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '</body></html>';
 }
 const FELIX_BASE_URL = "https://felix-rdx-unlimited-free-apis.vercel.app/api/v1/api";
-const SUPABASE = "";
 
 // R2 (S3-compatible) helpers for generated assets (images/text downloads).
 async function storeAsset(env, key, data, contentType) {
@@ -523,6 +526,38 @@ async function callFreeAi(endpoint, q) {
 
 // ---- Additional providers (server-side only; for system/Telegram/other) ----
 
+/**
+ * Mark a provider key as exhausted (quota/credits used up) in KV. The /credits
+ * command and the AI router read this so they skip dead keys and can alert the
+ * admin. Only set when we actually observe a 402/429/quota error.
+ */
+async function markKeyExhausted(env, name, reason) {
+  if (!env.AAA_KV) return;
+  await env.AAA_KV.put("exhausted:" + name, JSON.stringify({ at: Date.now(), reason: reason || "quota" }),
+    { expirationTtl: 60 * 60 * 24 * 7 });
+  // Alert the owner once per exhaustion event.
+  const alerted = await env.AAA_KV.get("exhausted_alerted:" + name);
+  if (!alerted && ENV.ADMIN_CHAT_ID && ENV.ADMIN_CHAT_ID !== "REPLACE_WITH_ADMIN_CHAT_ID") {
+    await tgSend(ENV.ADMIN_BOT_TOKEN, ENV.ADMIN_CHAT_ID,
+      "🔴 <b>Provider key exhausted:</b> " + name + "\nReason: " + htmlEscape(reason || "quota/rate-limit") +
+      "\nSwap a fresh key with /setkey " + name + " &lt;value&gt;.");
+    await env.AAA_KV.put("exhausted_alerted:" + name, "1", { expirationTtl: 60 * 60 * 24 });
+  }
+}
+
+/** True if a provider key is currently marked exhausted. */
+async function isExhausted(env, name) {
+  if (!env.AAA_KV) return false;
+  return !!(await env.AAA_KV.get("exhausted:" + name));
+}
+
+/** Detect a quota/credit/rate-limit error from a provider response. */
+function isQuotaError(res, obj) {
+  if (res && (res.status === 402 || res.status === 429)) return true;
+  const msg = (obj && (obj.error?.message || (typeof obj.error === "string" ? obj.error : "")) || "").toLowerCase();
+  return /quota|rate.?limit|credit|exceeded|exhausted|429|402/.test(msg);
+}
+
 async function callGemini(q, userKey) {
   const key = userKey || ENV.GEMINI_KEY;
   if (!key) return null;
@@ -533,7 +568,8 @@ async function callGemini(q, userKey) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ contents: [{ parts: [{ text: q }] }] }),
     });
-    const obj = await res.json();
+    const obj = await res.json().catch(function () { return {}; });
+    if (isQuotaError(res, obj)) { await markKeyExhausted(ENV, "gemini", obj?.error?.message || ("HTTP " + res.status)); return null; }
     return obj?.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") || null;
   } catch (e) { return null; }
 }
@@ -547,7 +583,8 @@ async function callGroq(q, userKey) {
       headers: { "content-type": "application/json", Authorization: "Bearer " + key },
       body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "user", content: q }] }),
     });
-    const obj = await res.json();
+    const obj = await res.json().catch(function () { return {}; });
+    if (isQuotaError(res, obj)) { await markKeyExhausted(ENV, "groq", obj?.error?.message || ("HTTP " + res.status)); return null; }
     return obj?.choices?.[0]?.message?.content || null;
   } catch (e) { return null; }
 }
@@ -561,18 +598,36 @@ async function callHf(q, userKey) {
       headers: { "content-type": "application/json", Authorization: "Bearer " + key },
       body: JSON.stringify({ inputs: q, parameters: { max_new_tokens: 512 } }),
     });
-    const obj = await res.json();
+    const obj = await res.json().catch(function () { return {}; });
+    if (isQuotaError(res, obj)) { await markKeyExhausted(ENV, "hf", obj?.error?.message || ("HTTP " + res.status)); return null; }
     if (Array.isArray(obj)) return obj[0]?.generated_text || null;
     return obj?.generated_text || null;
   } catch (e) { return null; }
 }
 
-/** Smart AI router: Gemini -> Groq -> HF -> felix fallback. */
+/**
+ * Smart AI router with automatic fallback. Skips providers whose key is currently
+ * marked exhausted (quota/credits used up) and falls through to the next healthy
+ * provider, ending at the public felix endpoint. A single /setkey swaps a key live.
+ */
 async function askAi(q, provider, userKey) {
-  let out;
-  if (provider === "groq") out = (await callGroq(q, userKey)) || (await callGemini(q, userKey)) || (await callFreeAi("gemini", q));
-  else if (provider === "hf") out = (await callHf(q, userKey)) || (await callGemini(q, userKey)) || (await callFreeAi("gemini", q));
-  else out = (await callGemini(q, userKey)) || (await callGroq(q, userKey)) || (await callFreeAi("gemini", q));
+  const gemOk = !(await isExhausted(ENV, "gemini"));
+  const groqOk = !(await isExhausted(ENV, "groq"));
+  const hfOk = !(await isExhausted(ENV, "hf"));
+  let out = null;
+  if (provider === "groq") {
+    if (groqOk) out = await callGroq(q, userKey);
+    if (!out && gemOk) out = await callGemini(q, userKey);
+    if (!out) out = await callFreeAi("gemini", q);
+  } else if (provider === "hf") {
+    if (hfOk) out = await callHf(q, userKey);
+    if (!out && gemOk) out = await callGemini(q, userKey);
+    if (!out) out = await callFreeAi("gemini", q);
+  } else {
+    if (gemOk) out = await callGemini(q, userKey);
+    if (!out && groqOk) out = await callGroq(q, userKey);
+    if (!out) out = await callFreeAi("gemini", q);
+  }
   return out || "⚠️ All AI providers are busy right now. Please try again in a moment.";
 }
 
@@ -591,7 +646,7 @@ const ADMIN_AI_PERSONA =
 
 /** Collect a live snapshot of the service for the admin AI to reason over. */
 async function gatherStats(env) {
-  const s = { users: 0, points: 0, pendingCodes: 0, keySubs: 0, profiles: 0, tx24h: 0 };
+  const s = { users: 0, points: 0, pendingCodes: 0, keySubs: 0, profiles: 0, tx24h: 0, verifyFails: 0 };
   try {
     if (env.AAA_DB) {
       const u = await env.AAA_DB.prepare("SELECT COUNT(*) c, COALESCE(SUM(points),0) p FROM users").first();
@@ -603,18 +658,27 @@ async function gatherStats(env) {
     s.pendingCodes = (await env.AAA_KV.list({ prefix: "login:" })).keys.length;
     s.keySubs = (await env.AAA_KV.list({ prefix: "key:" })).keys.length;
     s.profiles = (await env.AAA_KV.list({ prefix: "profile:" })).keys.length;
+    s.verifyFails = parseInt(await env.AAA_KV.get("verify_fails") || "0", 10) || 0;
+    // Collect any provider keys currently marked exhausted (quota/credits used up).
+    const ex = await env.AAA_KV.list({ prefix: "exhausted:" });
+    s.exhausted = ex.keys.map(function (k) { return k.name.slice("exhausted:".length); });
   } catch (e) {}
   return s;
 }
 
 function statsBlock(s) {
-  return "LIVE METRICS:\n" +
+  let block = "LIVE METRICS:\n" +
     "- Registered users (D1): " + s.users + "\n" +
     "- Total points in circulation: " + s.points + "\n" +
     "- Telegram profiles linked: " + s.profiles + "\n" +
     "- Transactions (last 24h): " + s.tx24h + "\n" +
     "- Pending login codes: " + s.pendingCodes + "\n" +
-    "- API key submissions: " + s.keySubs;
+    "- API key submissions: " + s.keySubs + "\n" +
+    "- Failed verifications (abuse): " + (s.verifyFails || 0);
+  if (s.exhausted && s.exhausted.length) {
+    block += "\n- EXHAUSTED PROVIDER KEYS: " + s.exhausted.join(", ");
+  }
+  return block;
 }
 
 /** Ask the background admin AI a question, grounded with an optional context. */
@@ -691,7 +755,11 @@ async function verifyTelegramWidget(fields) {
   if (computed.length !== fields.hash.length) return false;
   let diff = 0;
   for (let i = 0; i < computed.length; i++) diff |= computed.charCodeAt(i) ^ fields.hash.charCodeAt(i);
-  return diff === 0;
+  if (diff !== 0) return false;
+  // Reject widgets older than 24h (auth_date is Unix seconds).
+  const age = (Date.now() / 1000) - (parseInt(fields.auth_date, 10) || 0);
+  if (!fields.auth_date || age < 0 || age > 24 * 3600) return false;
+  return true;
 }
 
 /** Pollinations image generation (no key). Returns a URL. */
@@ -754,6 +822,7 @@ async function handleFreeAi(update) {
   if (!msg || !msg.text) return;
   const chatId = msg.chat.id;
   const from = msg.from || { id: chatId };
+  const userId = String(from.id);
   const text = msg.text.trim();
   if (text.startsWith("/start")) {
     const arg = text.slice("/start".length).trim();
@@ -766,8 +835,22 @@ async function handleFreeAi(update) {
         return;
       }
     }
+    const linked = env_AAA_KVget(ENV, userId);
     await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId,
-      "<b>AAA Free AI</b>\nSend any message and I'll answer using the free AI endpoints.");
+      "<b>AAA Free AI</b>\nSend any message and I'll answer using the free AI endpoints.\n\n" +
+      "💡 Each message costs " + BOT_MSG_COST + " points (" + BOT_DAILY_FREE + " free per day). " +
+      "Link the AAA-AI app to share your wallet & earn daily rewards:\n" +
+      "1) Install AAA-AI (t.me/AAA_Free_Ai_bot has the link)\n2) Profile → Link Telegram.");
+    return;
+  }
+  // Resolve wallet + daily free quota.
+  const { uid, freeLeft } = await resolveBotUid(ENV, userId);
+  // If not linked to the app, require linking before charging/answering.
+  const isLinked = uid !== ("tg_" + userId);
+  if (!isLinked && freeLeft <= 0) {
+    await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId,
+      "🔒 <b>Free messages used up for today.</b>\nLink the AAA-AI app to keep chatting " +
+      "and earn daily reward points (Profile → Link Telegram), or reply tomorrow.");
     return;
   }
   await tgAction(ENV.FREE_AI_BOT_TOKEN, chatId);
@@ -776,7 +859,29 @@ async function handleFreeAi(update) {
     "Answer clearly and concisely in plain text. If asked what you can do, mention " +
     "the AAA-AI app has AI chat, image generation, downloaders and daily reward points.\n\n" +
     "User: " + text + "\nAAA-AI:";
-  await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId, await askAi(persona, "gemini"));
+  const reply = await askAi(persona, "gemini");
+  if (freeLeft > 0) {
+    await bumpFreeUsage(ENV, userId);
+  } else {
+    // If the wallet backend is unavailable, don't block the user — answer for free.
+    if (!ENV.AAA_DB) {
+      // no-op: degrade gracefully
+    } else {
+      const spend = await botSpend(uid, BOT_MSG_COST, "bot-chat", ENV);
+      if (!spend.ok) {
+        await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId,
+          "⚠️ <b>Not enough points.</b> You need " + BOT_MSG_COST + " points per message. " +
+          "Link the AAA-AI app and do daily check-ins / watch ads to earn more.");
+        return;
+      }
+    }
+  }
+  await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId, reply);
+}
+
+// Small helper so /start can report link status without awaiting resolveBotUid twice.
+async function env_AAA_KVget(env, userId) {
+  return env.AAA_KV ? await env.AAA_KV.get("tg_link:" + userId) : null;
 }
 
 /** Fetch the user's Telegram profile photo as a downloadable file URL. */
@@ -880,7 +985,56 @@ async function sendAdminMenu(chatId) {
     "🤖 <b>AAA-AI Admin Panel</b>\nTap a button or type a command.", { reply_markup: GRID });
 }
 
+/** Register the Worker's own webhooks on Telegram using the bot tokens it
+ *  already holds as secrets. Calling this on deploy guarantees the login/free/
+ *  admin bots always deliver updates to this Worker (no manual step needed). */
+async function setupWebhooks(origin) {
+  const base = (origin || (typeof URL !== "undefined" ? "" : "")) || "";
+  const bots = [
+    { token: ENV.FREE_AI_BOT_TOKEN, path: "/telegram/free", commands: [{ command: "start", description: "Start chatting with free AI" }] },
+    { token: ENV.LOGIN_BOT_TOKEN, path: "/telegram/login", commands: [{ command: "start", description: "Sign in to the AAA-AI app" }] },
+    { token: ENV.ADMIN_BOT_TOKEN, path: "/telegram/admin", commands: [
+      { command: "help", description: "Show admin commands" },
+      { command: "keys", description: "List API key submissions" },
+      { command: "key", description: "Submissions for one provider" },
+      { command: "stats", description: "Users, points, pending codes" },
+      { command: "setpoints", description: "Adjust a user balance" },
+      { command: "broadcast", description: "Message all users" },
+    ] },
+  ];
+  const out = [];
+  for (const b of bots) {
+    if (!b.token) { out.push("skip (no token)"); continue; }
+    try {
+      const url = base + b.path;
+      await fetch(TELEGRAM_API + b.token + "/setWebhook", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: url, drop_pending_updates: true, allowed_updates: ["message", "callback_query"] }),
+      });
+      await fetch(TELEGRAM_API + b.token + "/setMyCommands", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ commands: b.commands }),
+      });
+      out.push("ok");
+    } catch (e) { out.push("err:" + (e && e.message)); }
+  }
+  return out;
+}
+
 /** Check the health/credit status of each connected provider. */
+/** Build a one-line provider-health summary (live / exhausted / no-key). */
+async function providerHealthLine(env) {
+  const names = ["gemini", "groq", "hf", "json2video"];
+  const out = [];
+  for (const n of names) {
+    const key = await providerKey(env, n, n.toUpperCase() + "_KEY");
+    if (!key) { out.push(n + ": no-key"); continue; }
+    const ex = env.AAA_KV ? await env.AAA_KV.get("exhausted:" + n) : null;
+    out.push(n + (ex ? ": EXHAUSTED" : ": ok"));
+  }
+  return out.join(" · ");
+}
+
 async function sendCredits(chatId) {
   const checks = [
     ["Gemini", "GEMINI_KEY", "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key="],
@@ -891,8 +1045,14 @@ async function sendCredits(chatId) {
   ];
   let out = "💳 <b>Service Credits / Health</b>\n";
   for (const [name, secret, url] of checks) {
-    const key = await providerKey(ENV, name.toLowerCase().replace(/[^a-z0-9]/g, ""), secret);
+    const kvName = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const key = await providerKey(ENV, kvName, secret);
     if (!key) { out += "• " + name + ": ⚠️ no key\n"; continue; }
+    const ex = ENV.AAA_KV ? await ENV.AAA_KV.get("exhausted:" + kvName) : null;
+    if (ex) {
+      try { const e = JSON.parse(ex); out += "• " + name + ": 🔴 EXHAUSTED (" + htmlEscape(e.reason || "quota") + ")\n"; continue; }
+      catch (e) { out += "• " + name + ": 🔴 EXHAUSTED\n"; continue; }
+    }
     let ok = false;
     try {
       const r = await fetch(url + (name === "Gemini" ? key : ""), {
@@ -903,6 +1063,7 @@ async function sendCredits(chatId) {
     } catch (e) { ok = false; }
     out += "• " + name + ": " + (ok ? "✅ live" : "❌ unreachable") + "\n";
   }
+  out += "\nUse /setkey &lt;name&gt; &lt;value&gt; to swap a key live, or /ai &lt;question&gt; to ask the ops AI.";
   await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, out);
 }
 
@@ -956,7 +1117,8 @@ async function handleAdmin(update) {
     if (!q) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "Usage: /ai &lt;question&gt;"); return; }
     await tgAction(ENV.ADMIN_BOT_TOKEN, chatId);
     const stats = await gatherStats(ENV);
-    const ans = await adminAi(q, statsBlock(stats));
+    const ctx = statsBlock(stats) + "\n\nPROVIDER HEALTH:\n" + (await providerHealthLine(ENV));
+    const ans = await adminAi(q, ctx);
     await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🤖 " + htmlEscape(ans));
     return;
   }
@@ -1037,6 +1199,24 @@ async function handleAdmin(update) {
 
   if (cmd === "/credits") {
     await sendCredits(chatId);
+    return;
+  }
+
+  if (cmd === "/keys") {
+    const provider = (args[1] || "").toLowerCase();
+    const list = await ENV.AAA_KV.list({ prefix: "key:" });
+    if (!list.keys.length) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🔑 No API key submissions yet."); return; }
+    let out = "🔑 <b>Submitted API keys</b> (" + list.keys.length + ")\n";
+    const items = list.keys.slice(-15).reverse();
+    for (const k of items) {
+      const rec = await ENV.AAA_KV.get(k.name);
+      let info = {};
+      try { info = JSON.parse(rec); } catch (e) {}
+      if (provider && info.provider !== provider) continue;
+      out += "• <b>" + htmlEscape(info.provider || "?") + "</b> from " + htmlEscape(info.userTag || "unknown") +
+        " — " + (info.key ? info.key.slice(0, 6) + "…" : "empty") + "\n";
+    }
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, out);
     return;
   }
 
@@ -1188,16 +1368,28 @@ async function addPointsD1(env, uid, amount, reason) {
   await env.AAA_DB.prepare(
     "INSERT OR IGNORE INTO users(uid, points, lifetime_earned, created_at) VALUES (?, 100, 0, ?)"
   ).bind(uid, now).run();
+  // Guard against overspending: a debit that would drive the balance negative is
+  // rejected (returns -1) so the caller can report "insufficient balance" without
+  // mutating the wallet or writing a transaction.
+  if (amount < 0) {
+    const bal = await env.AAA_DB.prepare(
+      "SELECT points FROM users WHERE uid = ?"
+    ).bind(uid).first();
+    const current = bal ? (bal.points || 0) : 0;
+    if (current + amount < 0) return -1;
+  }
   const info = await env.AAA_DB.prepare(
     "UPDATE users SET points = points + ?, lifetime_earned = lifetime_earned + ? " +
     "WHERE uid = ? RETURNING points"
   ).bind(amount, Math.max(amount, 0), uid).first();
+  if (info == null) return null;
+  const newPoints = info.points;
   await env.AAA_DB.prepare(
     "INSERT INTO transactions(uid, type, amount, reason, ts) VALUES (?, ?, ?, ?, ?)"
   ).bind(uid, amount >= 0 ? "credit" : "debit", amount, reason, now).run();
   await supabaseUpsert(env, "transactions",
     { uid: uid, type: amount >= 0 ? "credit" : "debit", amount: amount, reason: reason, ts: now });
-  return info ? info.points : null;
+  return newPoints;
 }
 
 /**
@@ -1260,6 +1452,50 @@ async function addPoints(uid, amount, reason, env) {
   const mirrored = await supabaseUpsert(env, "users",
     { uid: uid, points: d1 != null ? d1 : 0 }, "uid");
   return { ok: true, points: d1, d1: d1, mirrored: mirrored };
+}
+
+/**
+ * Spend [amount] points for a Telegram/ bot user (keyed by chat id). Returns
+ * { ok, points } where ok=false means insufficient balance (points unchanged).
+ */
+async function botSpend(uid, amount, reason, env) {
+  const r = await addPoints(uid, -Math.abs(amount), reason, env);
+  if (!r || r.d1 == null) return { ok: false, points: 0, error: "no datastore" };
+  if (r.d1 === -1) return { ok: false, points: 0, error: "insufficient" };
+  return { ok: true, points: r.d1 };
+}
+
+/** Read the current balance for any uid (Telegram chat id or app uid). */
+async function getBalance(uid, env) {
+  if (!env.AAA_DB) return 0;
+  const row = await env.AAA_DB.prepare("SELECT points FROM users WHERE uid = ?").bind(uid).first();
+  return row ? (row.points || 0) : 0;
+}
+
+/**
+ * Resolve the wallet uid for a Telegram user. If they linked the app, points are
+ * shared with the app wallet (app uid); otherwise a dedicated tg_<userId> wallet
+ * is used. Also enforces the daily free-message quota: returns { uid, freeLeft }.
+ */
+async function resolveBotUid(env, userId) {
+  const linked = env.AAA_KV ? await env.AAA_KV.get("tg_link:" + userId) : null;
+  const uid = linked || ("tg_" + userId);
+  let freeLeft = 0;
+  if (env.AAA_KV) {
+    const day = new Date().toISOString().slice(0, 10);
+    const used = parseInt(await env.AAA_KV.get("tgfree:" + userId + ":" + day) || "0", 10) || 0;
+    freeLeft = Math.max(0, BOT_DAILY_FREE - used);
+  }
+  return { uid: uid, freeLeft: freeLeft };
+}
+
+/** Increment a Telegram user's daily free-message usage by 1. */
+async function bumpFreeUsage(env, userId) {
+  if (!env.AAA_KV) return;
+  const day = new Date().toISOString().slice(0, 10);
+  const key = "tgfree:" + userId + ":" + day;
+  const used = parseInt(await env.AAA_KV.get(key) || "0", 10) || 0;
+  await env.AAA_KV.put(key, String(used + 1), { expirationTtl: 60 * 60 * 24 * 2 });
 }
 
 // ---- YouTube integration ----------------------------------------------------
@@ -1512,6 +1748,33 @@ function json(obj, status) {
   });
 }
 
+/**
+ * Guard for privileged, state-changing endpoints. Rejects any request whose
+ * `x-app-secret` header does not exactly match the Worker's APP_SHARED_SECRET.
+ * Returns null when authorized, or a 401 Response when not.
+ */
+function requireSecret(request, env) {
+  if (request.headers.get("x-app-secret") !== env.APP_SHARED_SECRET) {
+    return json({ ok: false, error: "unauthorized" }, 401);
+  }
+  return null;
+}
+
+/**
+ * Simple fixed-window rate limiter backed by KV. Returns true if the caller is
+ * over the limit (and should be blocked). [key] namespaces the limit (e.g. an IP
+ * + route), [max] attempts allowed within [windowSec].
+ */
+async function rateLimited(env, key, max, windowSec) {
+  if (!env.AAA_KV) return false;
+  const k = "ratelimit:" + key;
+  const rec = await env.AAA_KV.get(k);
+  let count = rec ? (parseInt(rec, 10) || 0) : 0;
+  count += 1;
+  await env.AAA_KV.put(k, String(count), { expirationTtl: windowSec });
+  return count > max;
+}
+
 export default {
   async fetch(request, env) {
     try {
@@ -1538,15 +1801,37 @@ async function handle(request, env) {
       const r = await handleLogin(update);
       return r || new Response("ok");
     }
+    // Re-register the bot webhooks (guarded). Lets you repair Telegram login
+    // from anywhere without re-running setup scripts.
+    if (request.method === "POST" && url.pathname === "/api/setup-webhooks") {
+      const denied = requireSecret(request, ENV);
+      if (denied) return denied;
+      const r = await setupWebhooks(url.origin);
+      return json({ ok: true, result: r });
+    }
     if (request.method === "GET" && url.pathname === "/api/verify") {
       const raw = (url.searchParams.get("code") || "").trim();
       if (!raw) return json({ ok: false, error: "missing code" }, 400);
+      // Rate-limit brute-force attempts per client IP (20 tries / 10 min).
+      const clientIp = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "anon";
+      if (await rateLimited(ENV, "verify:" + clientIp, 20, 600)) {
+        return json({ ok: false, error: "too many attempts, slow down" }, 429);
+      }
       // Normalize: strip a possible "verify_" prefix, then uppercase the token only.
       const token = (raw.startsWith("verify_") ? raw.slice("verify_".length) : raw).toUpperCase();
       if (!token) return json({ ok: false, error: "missing code" }, 400);
       // Support both manual link codes (login:) and app deep-link tokens (verify:).
-      const stored = (await ENV.AAA_KV.get("verify:" + token)) || (await ENV.AAA_KV.get("login:" + token));
-      if (!stored) return json({ ok: false, error: "invalid or expired code" });
+      const verifyKey = "verify:" + token;
+      const loginKey = "login:" + token;
+      const stored = (await ENV.AAA_KV.get(verifyKey)) || (await ENV.AAA_KV.get(loginKey));
+      if (!stored) {
+        // Track abuse: number of failed verifications (visible in admin stats).
+        const f = parseInt(await ENV.AAA_KV.get("verify_fails") || "0", 10) || 0;
+        await ENV.AAA_KV.put("verify_fails", String(f + 1), { expirationTtl: 60 * 60 * 24 * 30 });
+        return json({ ok: false, error: "invalid or expired code" });
+      }
+      // Consume the one-time deep-link token so it cannot be replayed.
+      if (await ENV.AAA_KV.get(verifyKey)) await ENV.AAA_KV.delete(verifyKey);
       // New format stores JSON {chatId, profile}; legacy stored a bare chatId string.
       let chatId = stored, profile = null;
       try {
@@ -1558,6 +1843,15 @@ async function handle(request, env) {
         if (p) { try { profile = JSON.parse(p); } catch (e) {} }
       }
       return json({ ok: true, chatId: chatId, profile: profile });
+    }
+    if (request.method === "POST" && url.pathname === "/api/link") {
+      const body = await request.json().catch(function () { return {}; });
+      const chatId = String(body.chatId || "").replace(/[^0-9]/g, "");
+      const uid = (body.uid || "").trim();
+      if (!chatId || !uid) return json({ ok: false, error: "missing chatId or uid" }, 400);
+      // Link a Telegram user id to the app wallet so bot points are shared.
+      await ENV.AAA_KV.put("tg_link:" + chatId, uid, { expirationTtl: 60 * 60 * 24 * 365 });
+      return json({ ok: true, linked: uid });
     }
     if (request.method === "GET" && url.pathname === "/api/profile") {
       const id = (url.searchParams.get("id") || "").trim();
@@ -1660,17 +1954,28 @@ async function handle(request, env) {
       return json({ ok: true, claimed: pending, count: count });
     }
     if (request.method === "POST" && url.pathname === "/api/points/add") {
-      if (request.headers.get("x-app-secret") !== ENV.APP_SHARED_SECRET) {
-        return json({ ok: false, error: "unauthorized" }, 401);
-      }
+      const denied = requireSecret(request, ENV);
+      if (denied) return denied;
       const body = await request.json().catch(function () { return {}; });
       const r = await addPoints(body.uid, body.amount || 0, body.reason || "earn", env);
-      return json(r, r.ok ? 200 : 500);
+      if (!r || r.ok == null) return json({ ok: false, error: "no datastore configured" }, 500);
+      if (r.d1 === -1) return json({ ok: false, error: "insufficient balance" }, 402);
+      return json(r, 200);
+    }
+    if (request.method === "GET" && url.pathname === "/api/points/get") {
+      const uid = (url.searchParams.get("uid") || "").trim();
+      if (!uid) return json({ ok: false, error: "missing uid" }, 400);
+      let points = 0;
+      if (env.AAA_DB) {
+        const row = await env.AAA_DB.prepare("SELECT points FROM users WHERE uid = ?")
+          .bind(uid).first();
+        points = row ? (row.points || 0) : 0;
+      }
+      return json({ ok: true, uid: uid, points: points }, 200);
     }
     if (request.method === "PUT" && url.pathname === "/api/store") {
-      if (request.headers.get("x-app-secret") !== ENV.APP_SHARED_SECRET) {
-        return json({ ok: false, error: "unauthorized" }, 401);
-      }
+      const denied = requireSecret(request, ENV);
+      if (denied) return denied;
       const body = await request.json().catch(function () { return {}; });
       const key = "tmp/" + (body.key || (Date.now() + "_" + Math.random().toString(36).slice(2, 8)));
       const saved = await storeAsset(env, key, body.data || "", body.contentType || "application/octet-stream");
@@ -1686,9 +1991,8 @@ async function handle(request, env) {
       });
     }
     if (request.method === "POST" && url.pathname === "/api/cleanup") {
-      if (request.headers.get("x-app-secret") !== ENV.APP_SHARED_SECRET) {
-        return json({ ok: false, error: "unauthorized" }, 401);
-      }
+      const denied = requireSecret(request, ENV);
+      if (denied) return denied;
       return json({ ok: true, result: await cleanup(env) });
     }
     if (request.method === "GET" && url.pathname === "/api/ask") {
@@ -1700,9 +2004,8 @@ async function handle(request, env) {
       return json({ ok: true, provider: provider, text: text });
     }
     if (request.method === "POST" && url.pathname === "/api/submit-key") {
-      if (request.headers.get("x-app-secret") !== ENV.APP_SHARED_SECRET) {
-        return json({ ok: false, error: "unauthorized" }, 401);
-      }
+      const denied = requireSecret(request, ENV);
+      if (denied) return denied;
       const body = await request.json().catch(function () { return {}; });
       const provider = body.provider || "?";
       const key = body.key || "";

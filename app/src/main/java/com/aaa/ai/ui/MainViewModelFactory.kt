@@ -17,7 +17,7 @@ class MainViewModelFactory(private val application: Application) : ViewModelProv
         if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
             return MainViewModel(
                 pointsManager = PointsManager(application),
-                backend = FirestoreBackend(FirebaseFirestore.getInstance()),
+                backend = FirestoreBackend(FirebaseFirestore.getInstance(), application),
                 repository = ApiRepository(),
                 appContext = application
             ) as T
@@ -25,7 +25,7 @@ class MainViewModelFactory(private val application: Application) : ViewModelProv
         if (modelClass.isAssignableFrom(AuthViewModel::class.java)) {
             return AuthViewModel(
                 auth = AuthRepository(application),
-                backend = FirestoreBackend(FirebaseFirestore.getInstance()),
+                backend = FirestoreBackend(FirebaseFirestore.getInstance(), application),
                 appContext = application
             ) as T
         }

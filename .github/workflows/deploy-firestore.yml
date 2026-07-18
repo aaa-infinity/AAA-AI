@@ -1,0 +1,27 @@
+name: Deploy Firestore Rules
+
+# Pushes the hardened Firestore security rules whenever they change on main.
+# Requires a Firebase CI token repo secret: FIREBASE_TOKEN (from `firebase login:ci`).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "firestore.rules"
+      - "firebase.json"
+      - ".github/workflows/deploy-firestore.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy Firestore rules
+        uses: w9jds/firebase-action@master
+        with:
+          args: deploy --only firestore:rules --project aaa-infinity-ai
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          PROJECT_ID: aaa-infinity-ai

@@ -19,6 +19,17 @@ android {
         versionCode = 5
         versionName = "2.0.0"
 
+        // Load APP_SHARED_SECRET from local.properties (gitignored) so the secret
+        // is never baked into source control or the public APK's source.
+        val localProps = Properties().apply {
+            val f = rootProject.file("local.properties")
+            if (f.exists()) FileInputStream(f).use { load(it) }
+        }
+        val sharedSecret = localProps.getProperty("APP_SHARED_SECRET")
+            ?: providers.gradleProperty("APP_SHARED_SECRET").orNull
+            ?: ""
+        buildConfigField("String", "APP_SHARED_SECRET", "\"$sharedSecret\"")
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
@@ -53,6 +64,10 @@ android {
                 keyPassword = keyPasswordProp
             }
         }
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     buildTypes {

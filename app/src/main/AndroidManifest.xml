@@ -13,7 +13,7 @@
 
     <application
         android:name=".FirebaseApplication"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:largeHeap="true"
         android:extractNativeLibs="true"
         android:icon="@mipmap/ic_launcher"

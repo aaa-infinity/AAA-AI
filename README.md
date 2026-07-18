@@ -93,3 +93,21 @@ AAA-AI/
   dashboard UI** (kept out of the shipped gallery by default).
 - The ad WebView is a standard in-app browser with a working close button and external-intent
   routing — it does **not** trap navigation or block the system browser.
+
+## Security model
+- **Points are server-authoritative.** All earn/spend mutations go through the Cloudflare
+  Worker (`/api/points/add`, D1 authoritative). The Android app never writes `points` to
+  Firestore — `firestore.rules` deny client `points`/`premium_until` writes; the client may
+  only update its own profile fields. Telegram free-bot chat also deducts points server-side.
+- **`APP_SHARED_SECRET`** is a Cloudflare Worker secret (rotated) and injected into the app via
+  `BuildConfig` from `local.properties` (gitignored). It is never hardcoded in source.
+- **Provider keys (Gemini/Groq/HF/…)** live as Worker secrets and are swappable live via the
+  admin bot `/setkey <name> <value>`. Quota/429 errors are auto-detected, the dead key is marked
+  exhausted (visible in `/credits`), the router falls back to the next healthy provider, and the
+  owner is alerted on Telegram.
+- **Supabase** is a disabled read-only mirror of D1. If ever enabled, set **Row Level Security**
+  policies on the `users` table so the anon key cannot read rows, and never expose
+  `SUPABASE_ANON` in the app — only the service-role key (server-side) may write.
+- **Ad WebView** is locked down: no file/content access, mixed-content blocked, and only
+  `https://` navigation is permitted; external intents are scheme-validated.
+- `android:allowBackup="false"` prevents `adb backup` extraction of locally stored user API keys.
