@@ -158,7 +158,6 @@ dependencies {
     implementation(libs.firebase.config)
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
-    implementation(libs.tdlib)
     implementation(libs.google.android.auth)
     implementation(libs.google.play.services.ads)
 
