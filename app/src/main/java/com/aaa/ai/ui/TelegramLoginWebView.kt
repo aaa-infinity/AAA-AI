@@ -55,13 +55,16 @@ fun TelegramLoginWebView(
                         fun onResult(json: String) {
                             runCatching {
                                 val u = org.json.JSONObject(json)
+                                // Server may send a bare user object or a
+                                // {token,user} wrapper; handle both.
+                                val user = if (u.has("user")) u.getJSONObject("user") else u
                                 onResult(
                                     TelegramUser(
-                                        id = u.optString("id"),
-                                        username = u.optString("username"),
-                                        firstName = u.optString("first_name"),
-                                        lastName = u.optString("last_name"),
-                                        photoUrl = u.optString("photo_url")
+                                        id = user.optString("id").ifBlank { user.optString("uid") },
+                                        username = user.optString("username"),
+                                        firstName = user.optString("first_name"),
+                                        lastName = user.optString("last_name"),
+                                        photoUrl = user.optString("photo_url")
                                     )
                                 )
                             }

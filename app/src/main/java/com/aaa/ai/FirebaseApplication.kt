@@ -2,6 +2,7 @@ package com.aaa.ai
 
 import android.app.Application
 import com.aaa.ai.data.AdMobManager
+import com.google.firebase.FirebaseApp
 import com.google.firebase.crashlytics.ktx.crashlytics
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.remoteconfig.ktx.remoteConfig
