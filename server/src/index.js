@@ -15,7 +15,7 @@
 
 const TELEGRAM_API = "https://api.telegram.org/bot";
 // R2 object key for the downloadable Android APK (uploaded when the app is ready).
-const APK_KEY = "app/aaa-ai-226.apk";
+const APK_KEY = "app/aaa-ai.apk";
 // Public "AAA FREE AI" Telegram channel (overridable via ENV.CHANNEL_ID secret).
 const DEFAULT_CHANNEL_ID = "-1003932377927";
 // Points charged per free-AI bot message (deducted server-side from the linked wallet).
