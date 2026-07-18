@@ -56,6 +56,8 @@ jobs:
           echo "RELEASE_KEY_PASSWORD=${{ secrets.RELEASE_KEY_PASSWORD }}" >> local.properties
           echo "ADMOB_APP_ID=${{ secrets.ADMOB_APP_ID }}" >> local.properties
           echo "APP_SHARED_SECRET=${{ secrets.APP_SHARED_SECRET }}" >> local.properties
+          echo "TG_API_ID=${{ secrets.TG_API_ID }}" >> local.properties
+          echo "TG_API_HASH=${{ secrets.TG_API_HASH }}" >> local.properties
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew

@@ -40,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
 import com.aaa.ai.ui.TelegramLoginWebView
+import com.aaa.ai.ui.TelegramUserLoginScreen
 
 @Composable
 fun LoginScreen(
@@ -52,6 +53,12 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var isSignUp by remember { mutableStateOf(false) }
     var showTgWeb by remember { mutableStateOf(false) }
+    var showUserLogin by remember { mutableStateOf(false) }
+
+    if (showUserLogin) {
+        TelegramUserLoginScreen(onBack = { showUserLogin = false })
+        return
+    }
 
     val botServer = stringResource(com.aaa.ai.R.string.bot_server_url)
     if (showTgWeb) {
@@ -157,6 +164,15 @@ fun LoginScreen(
         ) {
             Icon(Icons.Filled.Send, contentDescription = null, modifier = Modifier.size(18.dp).padding(end = 8.dp))
             Text("Sign in with Telegram (web)")
+        }
+
+        OutlinedButton(
+            onClick = { showUserLogin = true },
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Filled.Send, contentDescription = null, modifier = Modifier.size(18.dp).padding(end = 8.dp))
+            Text("Link as Telegram User Account (phone + code)")
         }
 
         if (tgState is AuthViewModel.TelegramLoginState.Failed) {

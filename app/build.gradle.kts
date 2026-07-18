@@ -16,8 +16,8 @@ android {
         applicationId = "com.aaa.ai"
         minSdk = 24
         targetSdk = 35
-        versionCode = 12
-        versionName = "2.2.5"
+        versionCode = 13
+        versionName = "2.2.6"
 
         // Load APP_SHARED_SECRET from local.properties (gitignored) so the secret
         // is never baked into source control or the public APK's source.
@@ -29,6 +29,16 @@ android {
             ?: providers.gradleProperty("APP_SHARED_SECRET").orNull
             ?: ""
         buildConfigField("String", "APP_SHARED_SECRET", "\"$sharedSecret\"")
+
+        // Telegram user-account API credentials (from your my.telegram.org app).
+        // Loaded from local.properties / gradle properties so they are NOT
+        // committed to source. Falls back to empty (TDLib login disabled) if absent.
+        val tgApiId = localProps.getProperty("TG_API_ID")
+            ?: providers.gradleProperty("TG_API_ID").orNull ?: ""
+        val tgApiHash = localProps.getProperty("TG_API_HASH")
+            ?: providers.gradleProperty("TG_API_HASH").orNull ?: ""
+        buildConfigField("int", "TG_API_ID", if (tgApiId.isBlank()) "0" else tgApiId)
+        buildConfigField("String", "TG_API_HASH", "\"$tgApiHash\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -133,6 +143,7 @@ dependencies {
     implementation(libs.firebase.config)
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
+    implementation(libs.tdlib)
     implementation(libs.google.android.auth)
     implementation(libs.google.play.services.ads)
 

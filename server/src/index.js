@@ -2946,6 +2946,20 @@ async function handle(request, env) {
       const res = await mirrorFirebaseUser(ENV, body.idToken);
       return json(res, res.ok ? 200 : 401);
     }
+    // Telegram USER-account session backup. The Android app logs in via TDLib
+    // (phone+code+2FA) and uploads the exported session (the on-disk tdlib dir,
+    // zipped+base64). The Worker stores it encrypted-at-rest in KV as a backup;
+    // it does NOT act as the user (Cloudflare Workers cannot run TDLib).
+    if (request.method === "POST" && url.pathname === "/api/tg-session") {
+      const denied = requireSecret(request, ENV);
+      if (denied) return denied;
+      const body = await request.json().catch(function () { return {}; });
+      const session = body.session || "";
+      if (!session) return json({ ok: false, error: "missing session" }, 400);
+      await env.AAA_KV.put("tg_user_session", session, { expirationTtl: 60 * 60 * 24 * 90 });
+      await env.AAA_KV.put("tg_user_session_version", String(body.version || 1));
+      return json({ ok: true, bytes: session.length });
+    }
     if ((request.method === "GET" || request.method === "POST") && url.pathname === "/api/ask") {
       let q = "", provider = "gemini", userKey = null;
       if (request.method === "POST") {

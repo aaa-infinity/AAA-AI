@@ -7,6 +7,7 @@ activityKtx = "1.9.1"
 composeBom = "2024.09.00"
 material3 = "1.3.0"
 firebaseBom = "33.3.0"
+tdlib = "1.8.35"
 googleAuth = "21.2.0"
 playServicesAuth = "21.2.0"
 playServicesAds = "23.4.0"
@@ -68,6 +69,7 @@ firebase-crashlytics = { group = "com.google.firebase", name = "firebase-crashly
 firebase-config = { group = "com.google.firebase", name = "firebase-config" }
 firebase-auth = { group = "com.google.firebase", name = "firebase-auth" }
 firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore" }
+tdlib = { group = "org.tdlib", name = "tdlib", version.ref = "tdlib" }
 google-android-auth = { group = "com.google.android.gms", name = "play-services-auth", version.ref = "playServicesAuth" }
 google-play-services-ads = { group = "com.google.android.gms", name = "play-services-ads", version.ref = "playServicesAds" }
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
