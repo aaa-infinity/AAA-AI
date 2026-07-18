@@ -24,7 +24,12 @@ import kotlinx.coroutines.tasks.await
  */
 class AuthRepository(private val context: Context) {
 
-    private val auth: FirebaseAuth = FirebaseAuth.getInstance()
+    private val auth: FirebaseAuth? by lazy {
+        runCatching {
+            if (com.google.firebase.FirebaseApp.getApps(context).isEmpty()) null
+            else FirebaseAuth.getInstance()
+        }.getOrNull()
+    }
 
     private val googleClient: GoogleSignInClient by lazy {
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
@@ -36,13 +41,15 @@ class AuthRepository(private val context: Context) {
 
     /** Reactive auth state: emits the current user (or null) on every change. */
     fun authState(): Flow<FirebaseUser?> = callbackFlow {
+        val a = auth
+        if (a == null) { trySend(null); awaitClose { }; return@callbackFlow }
         val listener = FirebaseAuth.AuthStateListener { trySend(it.currentUser) }
-        auth.addAuthStateListener(listener)
-        trySend(auth.currentUser)
-        awaitClose { auth.removeAuthStateListener(listener) }
+        a.addAuthStateListener(listener)
+        trySend(a.currentUser)
+        awaitClose { a.removeAuthStateListener(listener) }
     }
 
-    fun currentUser(): FirebaseUser? = auth.currentUser
+    fun currentUser(): FirebaseUser? = auth?.currentUser
 
     /** Intent to launch the Google sign-in sheet. */
     fun googleSignInIntent(): Intent = googleClient.signInIntent
@@ -59,12 +66,13 @@ class AuthRepository(private val context: Context) {
     }
 
     private suspend fun linkOrSignIn(credential: AuthCredential): AuthResult {
+        val a = auth ?: throw IllegalStateException("Firebase Auth is unavailable.")
         // If an anonymous/email user is signed in, link; otherwise sign in.
-        val user = auth.currentUser
+        val user = a.currentUser
         return if (user != null && user.isAnonymous) {
             user.linkWithCredential(credential).await()
         } else {
-            auth.signInWithCredential(credential).await()
+            a.signInWithCredential(credential).await()
         }
     }
 
@@ -90,13 +98,15 @@ class AuthRepository(private val context: Context) {
 
     suspend fun signUpWithEmail(email: String, password: String): Result<FirebaseUser> =
         runCatching {
-            val result = auth.createUserWithEmailAndPassword(email, password).await()
+            val a = auth ?: throw IllegalStateException("Firebase Auth is unavailable.")
+            val result = a.createUserWithEmailAndPassword(email, password).await()
             result.user ?: throw IllegalStateException("No user returned")
         }
 
     suspend fun signInWithEmail(email: String, password: String): Result<FirebaseUser> =
         runCatching {
-            val result = auth.signInWithEmailAndPassword(email, password).await()
+            val a = auth ?: throw IllegalStateException("Firebase Auth is unavailable.")
+            val result = a.signInWithEmailAndPassword(email, password).await()
             result.user ?: throw IllegalStateException("No user returned")
         }
 
@@ -105,6 +115,6 @@ class AuthRepository(private val context: Context) {
 
     fun signOut() {
         runCatching { googleClient.signOut() }
-        auth.signOut()
+        runCatching { auth?.signOut() }
     }
 }

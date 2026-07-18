@@ -21,14 +21,17 @@ import kotlinx.coroutines.tasks.await
  * When no user is signed in, the caller should fall back to the local
  * [PointsManager] / [ChatHistory] (DataStore) implementations.
  */
-class FirestoreBackend(private val db: FirebaseFirestore, private val context: android.content.Context) {
+class FirestoreBackend(private val db: FirebaseFirestore?, private val context: android.content.Context) {
 
-    fun userDoc(uid: String) = db.collection("users").document(uid)
+    private val available get() = db != null
+
+    fun userDoc(uid: String) = db!!.collection("users").document(uid)
     fun historyCol(uid: String) = userDoc(uid).collection("history")
     fun txCol(uid: String) = userDoc(uid).collection("transactions")
 
     /** Create/refresh the user profile document. Safe to call repeatedly. */
     suspend fun ensureProfile(user: FirebaseUser) {
+        if (!available) return
         val doc = userDoc(user.uid)
         val snap = doc.get().await()
         if (!snap.exists()) {
@@ -59,6 +62,7 @@ class FirestoreBackend(private val db: FirebaseFirestore, private val context: a
      * [PointsApi.getBalance] for the authoritative value.
      */
     fun pointsFlow(uid: String): Flow<Int> = callbackFlow {
+        if (!available) { trySend(PointsManager.DEFAULT_BALANCE); awaitClose { }; return@callbackFlow }
         val reg = userDoc(uid).addSnapshotListener { snap, _ ->
             val pts = snap?.getLong("points")?.toInt() ?: PointsManager.DEFAULT_BALANCE
             trySend(pts)
@@ -85,6 +89,7 @@ class FirestoreBackend(private val db: FirebaseFirestore, private val context: a
 
     /** Append a chat/gallery/text history entry. */
     suspend fun appendHistory(uid: String, msg: ChatMessage) {
+        if (!available) return
         historyCol(uid).add(
             mapOf(
                 "endpointId" to msg.endpointId,
@@ -97,6 +102,7 @@ class FirestoreBackend(private val db: FirebaseFirestore, private val context: a
 
     /** Live history, newest first (capped). */
     fun historyFlow(uid: String): Flow<List<ChatMessage>> = callbackFlow {
+        if (!available) { trySend(emptyList()); awaitClose { }; return@callbackFlow }
         val reg = historyCol(uid)
             .orderBy("timestamp", Query.Direction.ASCENDING)
             .limit(500)
@@ -114,6 +120,7 @@ class FirestoreBackend(private val db: FirebaseFirestore, private val context: a
     }
 
     fun transactionsFlow(uid: String): Flow<List<PointsTransaction>> = callbackFlow {
+        if (!available) { trySend(emptyList()); awaitClose { }; return@callbackFlow }
         val reg = txCol(uid)
             .orderBy("timeMillis", Query.Direction.DESCENDING)
             .limit(200)

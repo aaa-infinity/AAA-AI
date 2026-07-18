@@ -9,15 +9,25 @@ import com.aaa.ai.data.ApiRepository
 import com.aaa.ai.data.AuthRepository
 import com.aaa.ai.data.FirestoreBackend
 import com.aaa.ai.data.PointsManager
+import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.FirebaseFirestore
 
 @Suppress("UNCHECKED_CAST")
 class MainViewModelFactory(private val application: Application) : ViewModelProvider.Factory {
+    /** Returns a usable Firestore instance, or null when Firebase is unavailable
+     *  (e.g. misconfigured build). Callers must tolerate a null backend so the
+     *  app still runs in local-only mode instead of crashing on launch. */
+    private fun firestoreOrNull(): FirebaseFirestore? = runCatching {
+        if (FirebaseApp.getApps(application).isEmpty()) return@runCatching null
+        FirebaseFirestore.getInstance()
+    }.getOrNull()
+
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        val store = firestoreOrNull()
         if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
             return MainViewModel(
                 pointsManager = PointsManager(application),
-                backend = FirestoreBackend(FirebaseFirestore.getInstance(), application),
+                backend = FirestoreBackend(store, application),
                 repository = ApiRepository(),
                 appContext = application
             ) as T
@@ -25,7 +35,7 @@ class MainViewModelFactory(private val application: Application) : ViewModelProv
         if (modelClass.isAssignableFrom(AuthViewModel::class.java)) {
             return AuthViewModel(
                 auth = AuthRepository(application),
-                backend = FirestoreBackend(FirebaseFirestore.getInstance(), application),
+                backend = FirestoreBackend(store, application),
                 appContext = application
             ) as T
         }
