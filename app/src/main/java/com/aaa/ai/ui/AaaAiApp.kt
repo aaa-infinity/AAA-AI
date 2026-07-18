@@ -144,6 +144,7 @@ fun AaaAiApp(
     var activeEndpoint by remember { mutableStateOf<ApiEndpoint?>(null) }
     var showingResult by remember { mutableStateOf(false) }
     var pendingNsfw by remember { mutableStateOf<ApiEndpoint?>(null) }
+    var pendingPremium by remember { mutableStateOf<ApiEndpoint?>(null) }
     val appCtx = LocalContext.current
     var updateInfo by remember { mutableStateOf<com.aaa.ai.data.UpdateChecker.UpdateInfo?>(null) }
     LaunchedEffect(Unit) { updateInfo = com.aaa.ai.data.UpdateChecker.check(appCtx) }
@@ -165,6 +166,7 @@ fun AaaAiApp(
 
     fun activate(endpoint: ApiEndpoint, param: String) {
         if (endpoint.category == ApiCategory.NSFW && !confirmed18) { pendingNsfw = endpoint; return }
+        if (endpoint.requiresPremium && !viewModel.isPremium.value) { pendingPremium = endpoint; return }
         activeEndpoint = endpoint
         when (viewModel.kindFor(endpoint)) {
             ResultKind.CHAT -> {
@@ -203,6 +205,17 @@ fun AaaAiApp(
             onDismiss = { pendingNsfw = null }
         )
     }
+    if (pendingPremium != null) {
+        PremiumGateSheet(
+            endpoint = pendingPremium!!,
+            onDismiss = { pendingPremium = null },
+            onRedeem = {
+                val ep = pendingPremium; pendingPremium = null
+                viewModel.checkPremium(viewModel.userId.value)
+                ep?.let { activate(it, "") }
+            }
+        )
+    }
     updateInfo?.let { info ->
         var downloading by remember { mutableStateOf(false) }
         androidx.compose.material3.AlertDialog(
@@ -211,7 +224,7 @@ fun AaaAiApp(
             text = {
                 Column {
                     Text(if (info.required) "A required update is available. Please update to continue."
-                         else "A new version of AAA-AI is ready. It will replace the current version.")
+                         else "A new version of Ari AI is ready. It will replace the current version.")
                     if (info.changelog.isNotBlank()) {
                         androidx.compose.foundation.layout.Spacer(Modifier.height(8.dp))
                         Text(info.changelog, style = MaterialTheme.typography.bodySmall)
@@ -317,6 +330,10 @@ fun AaaAiApp(
                         }
                         Text("Loading…", modifier = Modifier.padding(16.dp))
                     } else {
+                        ChatModelSelector(
+                            selected = viewModel.chatProvider.value,
+                            onSelect = { viewModel.chatProvider.value = it }
+                        )
                         ChatScreen(
                             messages = chatMessages,
                             isTyping = isTyping,
@@ -399,12 +416,12 @@ private fun HomeScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Image(
                         painter = painterResource(id = R.drawable.logo_aaa),
-                        contentDescription = "AAA-AI",
+                        contentDescription = "Ari AI",
                         modifier = Modifier.size(48.dp)
                     )
                     Spacer(Modifier.width(12.dp))
                     Column {
-                        Text("AAA-AI", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
+                        Text("Ari AI", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
                         Text("Unlimited free AI · downloaders · studio", color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f))
                     }
                 }

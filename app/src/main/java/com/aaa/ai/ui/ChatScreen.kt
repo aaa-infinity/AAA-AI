@@ -31,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.TextField
@@ -221,6 +222,58 @@ private fun TypingIndicator() {
                             .background(Color.Gray.copy(alpha = it))
                     )
                     androidx.compose.foundation.layout.Spacer(modifier = Modifier.size(4.dp))
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Model selector for the in-app chat. When a model is chosen, chat is answered by
+ * the Worker's server-side AI router (owner provider keys: Gemini / Groq / HF) with
+ * automatic fallback. Selecting "Auto (free)" uses the selected felix endpoint.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ChatModelSelector(
+    selected: com.aaa.ai.data.ChatApi.Model?,
+    onSelect: (com.aaa.ai.data.ChatApi.Model?) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val models = com.aaa.ai.data.ChatApi.Model.values()
+    val label = selected?.label ?: "Auto (free model)"
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text("AI Model:", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(end = 8.dp))
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = it },
+            modifier = Modifier.weight(1f)
+        ) {
+            TextField(
+                value = label,
+                onValueChange = {},
+                readOnly = true,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                modifier = Modifier.menuAnchor()
+            )
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Auto (free model)") },
+                    onClick = { onSelect(null); expanded = false }
+                )
+                models.forEach { m ->
+                    DropdownMenuItem(
+                        text = { Text(m.label) },
+                        onClick = { onSelect(m); expanded = false }
+                    )
                 }
             }
         }

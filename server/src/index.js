@@ -1,5 +1,5 @@
 /**
- * AAA-AI server (Cloudflare Workers, free tier) — ES module format.
+ * Ari AI server (Cloudflare Workers, free tier) — ES module format.
  *
  * Server-side only. Privileged credentials are SECRETS (never in code/APK):
  *   FREE_AI_BOT_TOKEN, LOGIN_BOT_TOKEN,
@@ -106,7 +106,7 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
   const steps = [
     ['1', 'Download the APK', 'Tap the download button above to get the latest build.'],
     ['2', 'Allow install', 'When prompted, enable “Install from unknown sources” for your browser.'],
-    ['3', 'Open & sign in', 'Install, open AAA-AI, and log in with Telegram to start.'],
+    ['3', 'Open & sign in', 'Install, open Ari AI, and log in with Telegram to start.'],
   ].map(function (s) {
     return '<div class="step reveal"><div class="num">' + s[0] + '</div>' +
       '<div><h4>' + s[1] + '</h4><p>' + s[2] + '</p></div></div>';
@@ -115,12 +115,12 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
   return '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<meta name="theme-color" content="#0b0b13">' +
-    '<meta name="description" content="AAA-AI — unlimited free AI chat, image generation, downloaders and creative studio for Android.">' +
-    '<meta property="og:title" content="AAA-AI — Free AI Super App">' +
+    '<meta name="description" content="Ari AI — unlimited free AI chat, image generation, downloaders and creative studio for Android.">' +
+    '<meta property="og:title" content="Ari AI — Free AI Super App">' +
     '<meta property="og:description" content="Unlimited free AI chat, image generation & downloaders. Download for Android.">' +
     '<meta property="og:image" content="/api/asset/public/logo_aaa.png">' +
     '<meta property="og:type" content="website">' +
-    '<title>AAA-AI — Free AI Super App for Android</title>' +
+    '<title>Ari AI — Free AI Super App for Android</title>' +
     '<style>' +
     '*{box-sizing:border-box;margin:0;padding:0}:root{color-scheme:dark}' +
     'html{scroll-behavior:smooth}' +
@@ -203,12 +203,12 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '@media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;transition:none}.hero::before{animation:none}}' +
     '</style></head><body>' +
     '<nav class="nav"><div class="wrap"><div class="brand">' +
-    '<img src="/api/asset/public/logo_aaa.png" width="30" height="30" alt="">AAA-AI</div>' +
+    '<img src="/api/asset/public/logo_aaa.png" width="30" height="30" alt="">Ari AI</div>' +
     '<a class="dl" href="/app.apk">Get the app</a></div></nav>' +
     // hero
     '<header class="hero"><div class="wrap">' +
-    '<img class="logo" src="/api/asset/public/logo_aaa.png" width="104" height="104" alt="AAA-AI logo">' +
-    '<h1>AAA-AI <span class="grad">Super App</span></h1>' +
+    '<img class="logo" src="/api/asset/public/logo_aaa.png" width="104" height="104" alt="Ari AI logo">' +
+    '<h1>Ari AI <span class="grad">Super App</span></h1>' +
     '<p class="sub">Unlimited free AI chat, image generation, downloaders &amp; a full creative studio — all in one beautiful Android app.</p>' +
     cta +
     '<div class="meta">Android 7.0+ &middot; ' + (ver || 'Free forever') + (available ? '' : ' &middot; releasing soon') + '</div>' +
@@ -253,9 +253,8 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '<a href="https://t.me/AAA_Login_bot">🔐 Login Bot</a>' +
     '</div></div></section>' +
     // footer
-    '<footer>&copy; ' + new Date().getFullYear() + ' AAA-AI &middot; Made for creators.<br>' +
+    '<footer>&copy; ' + new Date().getFullYear() + ' Ari AI &middot; Made for creators.<br>' +
     'By installing you agree to allow updates from this source.<br>' +
-    '<a href="https://github.com/aaa-infinity/AAA-AI">GitHub</a> &middot; ' +
     '<a href="https://t.me/AAA_Free_Ai_bot">Telegram</a> &middot; ' +
     '<a href="/app.apk">Download APK</a></footer>' +
     // dynamic behaviour: scroll reveal + animated counters
@@ -398,8 +397,8 @@ async function postToYouTube(text, env) {
       { headers: { Authorization: "Bearer " + accessToken } }).then(function (r) { return r.json(); });
     const snip = cur.items && cur.items[0] && cur.items[0].snippet;
     if (!snip) return false;
-    const promoLine = "\n\n🎁 AAA-AI Promo: " + text.replace(/<[^>]+>/g, "");
-    const desc = (snip.description || "").split("🎁 AAA-AI Promo:")[0].trim() + promoLine;
+    const promoLine = "\n\n🎁 Ari AI Promo: " + text.replace(/<[^>]+>/g, "");
+    const desc = (snip.description || "").split("🎁 Ari AI Promo:")[0].trim() + promoLine;
     const res = await fetch("https://www.googleapis.com/youtube/v3/videos?part=snippet", {
       method: "PUT",
       headers: { Authorization: "Bearer " + accessToken, "content-type": "application/json" },
@@ -458,7 +457,7 @@ async function generatePromoVideo(text, env) {
       body: JSON.stringify({
         resolution: "hd",
         scenes: [
-          { duration: 3, elements: [{ type: "text", text: "AAA-AI", style: "001" }] },
+          { duration: 3, elements: [{ type: "text", text: "Ari AI", style: "001" }] },
           { duration: 4, elements: [{ type: "text", text: text.replace(/<[^>]+>/g, "").slice(0, 60), style: "001" }] },
         ],
       }),
@@ -637,7 +636,7 @@ async function askAi(q, provider, userKey) {
 // and (c) the daily cron intelligence report. It never exposes the keys.
 
 const ADMIN_AI_PERSONA =
-  "You are AAA-Admin-AI, the built-in operations assistant for the AAA-AI Android " +
+  "You are AAA-Admin-AI, the built-in operations assistant for the Ari AI Android " +
   "super-app (free AI chat, image generation, downloaders, points & referrals). " +
   "You help the owner run the service: interpret stats, spot problems, suggest " +
   "growth ideas, draft announcements/broadcasts, and answer product questions. " +
@@ -839,8 +838,8 @@ async function handleFreeAi(update) {
     await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId,
       "<b>AAA Free AI</b>\nSend any message and I'll answer using the free AI endpoints.\n\n" +
       "💡 Each message costs " + BOT_MSG_COST + " points (" + BOT_DAILY_FREE + " free per day). " +
-      "Link the AAA-AI app to share your wallet & earn daily rewards:\n" +
-      "1) Install AAA-AI (t.me/AAA_Free_Ai_bot has the link)\n2) Profile → Link Telegram.");
+      "Link the Ari AI app to share your wallet & earn daily rewards:\n" +
+      "1) Install Ari AI (t.me/AAA_Free_Ai_bot has the link)\n2) Profile → Link Telegram.");
     return;
   }
   // Resolve wallet + daily free quota.
@@ -849,16 +848,16 @@ async function handleFreeAi(update) {
   const isLinked = uid !== ("tg_" + userId);
   if (!isLinked && freeLeft <= 0) {
     await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId,
-      "🔒 <b>Free messages used up for today.</b>\nLink the AAA-AI app to keep chatting " +
+      "🔒 <b>Free messages used up for today.</b>\nLink the Ari AI app to keep chatting " +
       "and earn daily reward points (Profile → Link Telegram), or reply tomorrow.");
     return;
   }
   await tgAction(ENV.FREE_AI_BOT_TOKEN, chatId);
   const persona =
-    "You are AAA-AI, a friendly, helpful free AI assistant inside a Telegram bot. " +
+    "You are Ari, a friendly, helpful free AI assistant inside a Telegram bot. " +
     "Answer clearly and concisely in plain text. If asked what you can do, mention " +
-    "the AAA-AI app has AI chat, image generation, downloaders and daily reward points.\n\n" +
-    "User: " + text + "\nAAA-AI:";
+    "the Ari AI app has AI chat, image generation, downloaders and daily reward points.\n\n" +
+    "User: " + text + "\nAri:";
   const reply = await askAi(persona, "gemini");
   if (freeLeft > 0) {
     await bumpFreeUsage(ENV, userId);
@@ -871,7 +870,7 @@ async function handleFreeAi(update) {
       if (!spend.ok) {
         await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId,
           "⚠️ <b>Not enough points.</b> You need " + BOT_MSG_COST + " points per message. " +
-          "Link the AAA-AI app and do daily check-ins / watch ads to earn more.");
+          "Link the Ari AI app and do daily check-ins / watch ads to earn more.");
         return;
       }
     }
@@ -933,7 +932,7 @@ async function handleLogin(update) {
     const photoUrl = await tgProfilePhotoUrl(from.id);
     await saveTgProfile(from, { phone: msg.contact.phone_number, photoUrl: photoUrl });
     await tgSend(ENV.LOGIN_BOT_TOKEN, chatId,
-      "✅ <b>All set!</b>\nYour phone number was linked. Return to the AAA-AI app — your profile is now synced.",
+      "✅ <b>All set!</b>\nYour phone number was linked. Return to the Ari AI app — your profile is now synced.",
       { reply_markup: { remove_keyboard: true } });
     return;
   }
@@ -951,7 +950,7 @@ async function handleLogin(update) {
         await ENV.AAA_KV.put("verify:" + token, JSON.stringify({ chatId: chatId, profile: profile }), { expirationTtl: 600 });
         const name = htmlEscape([from.first_name, from.last_name].filter(Boolean).join(" ") || "there");
         await tgSend(ENV.LOGIN_BOT_TOKEN, chatId,
-          "✅ <b>Login verified</b>\nWelcome, " + name + "! You're signed in to AAA-AI.\n\n" +
+          "✅ <b>Login verified</b>\nWelcome, " + name + "! You're signed in to Ari AI.\n\n" +
           "Tap below to also link your phone number (optional), then return to the app.",
           { reply_markup: contactKeyboard });
         return;
@@ -962,13 +961,13 @@ async function handleLogin(update) {
     await saveTgProfile(from, { photoUrl: photoUrl });
     await ENV.AAA_KV.put("login:" + code, JSON.stringify({ chatId: chatId, profile: await saveTgProfile(from, { photoUrl: photoUrl }) }), { expirationTtl: 600 });
     await tgSend(ENV.LOGIN_BOT_TOKEN, chatId,
-      "<b>AAA-AI Login</b>\nYour link code (valid 10 min):\n\n<code>" + code + "</code>\n\n" +
-      "Open AAA-AI → Profile → Link Telegram and enter this code.\n\n" +
+      "<b>Ari AI Login</b>\nYour link code (valid 10 min):\n\n<code>" + code + "</code>\n\n" +
+      "Open Ari AI → Profile → Link Telegram and enter this code.\n\n" +
       "Optionally, share your phone number below to complete your profile.",
       { reply_markup: contactKeyboard });
     return;
   }
-  await tgSend(ENV.LOGIN_BOT_TOKEN, chatId, "👋 Send /start to sign in to AAA-AI.");
+  await tgSend(ENV.LOGIN_BOT_TOKEN, chatId, "👋 Send /start to sign in to Ari AI.");
 }
 
 /** Send the clean admin grid menu (inline keyboard). */
@@ -982,7 +981,7 @@ async function sendAdminMenu(chatId) {
     ],
   };
   await tgSend(ENV.ADMIN_BOT_TOKEN, chatId,
-    "🤖 <b>AAA-AI Admin Panel</b>\nTap a button or type a command.", { reply_markup: GRID });
+    "🤖 <b>Ari AI Admin Panel</b>\nTap a button or type a command.", { reply_markup: GRID });
 }
 
 /** Register the Worker's own webhooks on Telegram using the bot tokens it
@@ -992,7 +991,7 @@ async function setupWebhooks(origin) {
   const base = (origin || (typeof URL !== "undefined" ? "" : "")) || "";
   const bots = [
     { token: ENV.FREE_AI_BOT_TOKEN, path: "/telegram/free", commands: [{ command: "start", description: "Start chatting with free AI" }] },
-    { token: ENV.LOGIN_BOT_TOKEN, path: "/telegram/login", commands: [{ command: "start", description: "Sign in to the AAA-AI app" }] },
+    { token: ENV.LOGIN_BOT_TOKEN, path: "/telegram/login", commands: [{ command: "start", description: "Sign in to the Ari AI app" }] },
     { token: ENV.ADMIN_BOT_TOKEN, path: "/telegram/admin", commands: [
       { command: "help", description: "Show admin commands" },
       { command: "keys", description: "List API key submissions" },
@@ -1346,7 +1345,7 @@ async function handleAdmin(update) {
     let sent = 0, failed = 0;
     for (const k of listed.keys) {
       const id = k.name.slice("profile:".length);
-      const ok = await tgSendSafe(ENV.LOGIN_BOT_TOKEN, id, "📣 <b>AAA-AI</b>\n" + htmlEscape(message));
+      const ok = await tgSendSafe(ENV.LOGIN_BOT_TOKEN, id, "📣 <b>Ari AI</b>\n" + htmlEscape(message));
       if (ok) sent++; else failed++;
     }
     await tgSend(ENV.ADMIN_BOT_TOKEN, chatId,
@@ -1690,8 +1689,8 @@ async function weeklyPromo(env) {
   const promo = await createPromoCode(env, { premiumDays: 7, maxRedemptions: 30, validDays: 7 });
   const msg = await adminAi(
     "Write an exciting short Telegram channel post (2-3 sentences, a few emojis) announcing a " +
-    "limited promo code that unlocks 7 days of AAA-AI PREMIUM for only the first 30 people. " +
-    "The code is " + promo.code + ". Tell them to open the AAA-AI app and redeem it in Profile. " +
+    "limited promo code that unlocks 7 days of Ari AI PREMIUM for only the first 30 people. " +
+    "The code is " + promo.code + ". Tell them to open the Ari AI app and redeem it in Profile. " +
     "Output only the post text.", "");
   const post = (msg && msg.length > 5 ? htmlEscape(msg) : ("🎁 Limited drop! First 30 users get 7 days PREMIUM free.")) +
     "\n\n🔑 Code: <b>" + promo.code + "</b>\n👥 First " + promo.maxRedemptions + " users only!";
@@ -1714,12 +1713,12 @@ async function weeklyPromo(env) {
     if (!toChannel) toChannel = await postToChannel(post);
     // Upload the video directly to YouTube.
     toYtVideo = await uploadVideoToYouTube(videoBuf,
-      "AAA-AI Promo " + promo.code + " — 7 Days Premium Free",
-      "Limited promo! Use code " + promo.code + " in the AAA-AI app to unlock 7 days of Premium. First 30 users only.\n\nGet the app: https://aaa-ai-bot.aaateam.workers.dev/download",
+      "Ari AI Promo " + promo.code + " — 7 Days Premium Free",
+      "Limited promo! Use code " + promo.code + " in the Ari AI app to unlock 7 days of Premium. First 30 users only.\n\nGet the app: https://aaa-ai-bot.aaateam.workers.dev/download",
       env);
   } else {
     // Fallback: post a generated image to the channel.
-    const imgPrompt = "AAA-AI promo, neon purple pink gradient, code " + promo.code + ", premium badge, modern app, 4k";
+    const imgPrompt = "Ari AI promo, neon purple pink gradient, code " + promo.code + ", premium badge, modern app, 4k";
     const imgUrl = pollinationsUrl(imgPrompt, { width: 1024, height: 1024 });
     try {
       const imgResp = await fetch(imgUrl);
@@ -2081,14 +2080,14 @@ if (request.method === "GET" && url.pathname === "/api/search") {
     if (request.method === "GET" && (url.pathname === "/app.apk" || url.pathname === "/download/app.apk")) {
       const obj = env.aaa_assets ? await env.aaa_assets.get(APK_KEY) : null;
       if (!obj) {
-        return new Response("The AAA-AI app is coming soon. Check back shortly!", {
+        return new Response("The Ari AI app is coming soon. Check back shortly!", {
           status: 404, headers: { "content-type": "text/plain" },
         });
       }
       return new Response(obj.body, {
         headers: {
           "content-type": "application/vnd.android.package-archive",
-          "content-disposition": 'attachment; filename="AAA-AI.apk"',
+          "content-disposition": 'attachment; filename="Ari AI.apk"',
           "cache-control": "public, max-age=300",
         },
       });
@@ -2113,7 +2112,7 @@ if (request.method === "GET" && url.pathname === "/api/search") {
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=120" },
       });
     }
-    return new Response("AAA-AI bot server.", { headers: { "content-type": "text/plain" } });
+    return new Response("Ari AI bot server.", { headers: { "content-type": "text/plain" } });
   }
 
 export async function scheduled(controller, env) {

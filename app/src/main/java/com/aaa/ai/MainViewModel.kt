@@ -201,6 +201,11 @@ class MainViewModel(
         }
     }
 
+    /** Selected AI model for the in-app chat (Gemini / Groq / HF). Null = use the
+     * free felix endpoint selected in the dropdown. When set, chat goes through the
+     * Worker's server-side router that uses the owner's provider keys. */
+    val chatProvider = MutableStateFlow<com.aaa.ai.data.ChatApi.Model?>(null)
+
     // ---------- Chat ----------
     fun loadChatFor(endpoint: ApiEndpoint) {
         activeChatEndpoint = endpoint.id
@@ -215,6 +220,23 @@ class MainViewModel(
         val userMsg = ChatMessage(text, true, System.currentTimeMillis(), endpoint.id)
         _chatMessages.value = _chatMessages.value + userMsg
         viewModelScope.launch { com.aaa.ai.data.ChatHistory.append(appContext, endpoint.id, userMsg) }
+
+        val model = chatProvider.value
+        if (model != null) {
+            // Server-side model (owner keys, auto-fallback). No felix cost.
+            viewModelScope.launch {
+                _isTyping.value = true
+                val reply = com.aaa.ai.data.ChatApi.ask(appContext, model, text)
+                _isTyping.value = false
+                val ai = ChatMessage(
+                    reply ?: "Ari couldn't reach the AI service. Try again or switch the model.",
+                    false, System.currentTimeMillis(), endpoint.id
+                )
+                _chatMessages.value = _chatMessages.value + ai
+                com.aaa.ai.data.ChatHistory.append(appContext, endpoint.id, ai)
+            }
+            return
+        }
 
         val cost = costFor(endpoint)
         viewModelScope.launch {

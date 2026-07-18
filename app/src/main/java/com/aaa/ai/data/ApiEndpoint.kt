@@ -21,7 +21,11 @@ data class ApiEndpoint(
     val isGallery: Boolean = false
 ) {
     /** True when the endpoint expects a user-supplied query parameter. */
-    val hasParam: Boolean get() = paramKey.isNotBlank()
+        val hasParam: Boolean get() = paramKey.isNotBlank()
+
+    /** VIP-only endpoints require a Premium pass (image gen + VIP/NSFW galleries). */
+    val requiresPremium: Boolean
+        get() = id == "txt2img" || category == ApiCategory.VIP_GALLERIES || category == ApiCategory.NSFW
 
     fun buildUrl(baseUrl: String, value: String): String {
         if (!hasParam) return "$baseUrl/$path"

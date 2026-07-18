@@ -69,7 +69,7 @@ fun LoginScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text("AAA-AI", style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.primary)
+        Text("Ari AI", style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.primary)
         Text("Sign in to sync your points & history", style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 24.dp))
 

@@ -71,7 +71,7 @@ class ApiRepository {
             ResultKind.TEXT -> ParsedResult.TextBlock(
                 title = endpoint.label,
                 body = "Demo response for “${value.ifBlank { endpoint.label }}”.\n\n" +
-                    "Connect the app to the AAA-AI backend (or a live network) to get real results."
+                    "Connect the app to the Ari AI backend (or a live network) to get real results."
             )
             else -> ParsedResult.Chat(
                 "Demo reply from ${endpoint.label}: I’m running in offline demo mode, so this is " +

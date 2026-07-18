@@ -4,7 +4,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 
-// AAA-AI premium brand palette
+// Ari AI premium brand palette
 val BrandPurple = Color(0xFF7C4DFF)
 val BrandIndigo = Color(0xFF536DFE)
 val BrandPink = Color(0xFFFF4D9D)

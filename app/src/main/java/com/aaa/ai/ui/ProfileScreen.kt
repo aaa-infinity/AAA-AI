@@ -144,7 +144,7 @@ fun ProfileScreen(
                             editingName = false
                         }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Save") }
                     } else {
-                        Text(profile.name.ifBlank { "AAA-AI User" }, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 12.dp))
+                        Text(profile.name.ifBlank { "Ari AI User" }, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 12.dp))
                         TextButton(onClick = { editingName = true }) { Text("Edit name") }
                     }
 
@@ -328,12 +328,12 @@ fun ProfileScreen(
                         type = "text/plain"
                         putExtra(
                             android.content.Intent.EXTRA_TEXT,
-                            "Get AAA-AI — unlimited free AI chat, image generation & downloaders.\n\n" +
+                            "Get Ari AI — unlimited free AI chat, image generation & downloaders.\n\n" +
                                 "📲 Download the app: $downloadUrl\n" +
                                 "🎁 Or start via my invite (I earn bonus points): $refLink"
                         )
                     }
-                    ctx.startActivity(android.content.Intent.createChooser(share, "Share AAA-AI"))
+                    ctx.startActivity(android.content.Intent.createChooser(share, "Share Ari AI"))
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
