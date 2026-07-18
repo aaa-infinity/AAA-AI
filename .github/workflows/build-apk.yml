@@ -43,7 +43,7 @@ jobs:
 
       - name: Install Android NDK (for optional TDLib build)
         if: ${{ env.BUILD_TDLIB == 'true' }}
-        run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;25.1.8937393" || true
+        run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;26.1.10909125" || true
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
 
@@ -77,7 +77,7 @@ jobs:
       # placed at app/libs/tdlib.aar which the app build picks up automatically.
       - name: Set up Android NDK
         if: ${{ env.BUILD_TDLIB == 'true' }}
-        run: echo "ndk.dir=$ANDROID_HOME/ndk/25.1.8937393" >> local.properties
+        run: echo "ndk.dir=$ANDROID_HOME/ndk/26.1.10909125" >> local.properties
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
 
@@ -89,7 +89,7 @@ jobs:
           cd /tmp/tdlib/example/android
           # Point the sample at our local.properties sdk/ndk
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-          echo "ndk.dir=$ANDROID_HOME/ndk/25.1.8937393" >> local.properties
+          echo "ndk.dir=$ANDROID_HOME/ndk/26.1.10909125" >> local.properties
           ../gradlew assembleRelease || ../gradlew assembleDebug
           AAR=$(find . -name "tdlib*.aar" | head -1)
           if [ -n "$AAR" ]; then mkdir -p ${{ github.workspace }}/app/libs && cp "$AAR" ${{ github.workspace }}/app/libs/tdlib.aar && echo "TDLIB AAR ready"; fi
