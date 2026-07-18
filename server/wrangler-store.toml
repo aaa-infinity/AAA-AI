@@ -20,3 +20,4 @@ d1_databases = [
 r2_buckets = [
   { binding = "aaa_assets", bucket_name = "aaa-assets" }
 ]
+
