@@ -6,6 +6,7 @@ import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aaa.ai.data.AuthRepository
+import com.aaa.ai.data.FirebaseSync
 import com.aaa.ai.data.FirestoreBackend
 import com.aaa.ai.data.TelegramAuthSession
 import com.aaa.ai.data.TelegramDeepLinkAuth
@@ -162,6 +163,8 @@ class AuthViewModel(
 
     private suspend fun onSignedIn(user: FirebaseUser) {
         runCatching { backend.ensureProfile(user) }
+        // Mirror the Firebase user into the Cloudflare -> Supabase + D1 backends.
+        runCatching { FirebaseSync.sync(appContext, user) }
         // Seed local lifetime display name from auth if empty
         viewModelScope.launch {
             UserProfile.profileFlow(appContext).collect { p ->

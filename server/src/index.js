@@ -702,6 +702,53 @@ async function firebaseAccessToken(env, scope) {
   } catch (e) { return null; }
 }
 
+/**
+ * Verify a Firebase ID token (issued by the app after sign-in) and return the
+ * Firebase user profile. Uses the service account's OAuth token to call the
+ * Identity Toolkit getAccountInfo endpoint — no extra SDK needed.
+ * Returns { uid, email, displayName } or null if invalid.
+ */
+async function verifyFirebaseToken(env, idToken) {
+  if (!idToken) return null;
+  try {
+    const token = await firebaseAccessToken(env, "https://www.googleapis.com/auth/identitytoolkit");
+    if (!token) return null;
+    const res = await fetch(
+      "https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=" + (env.FIREBASE_WEB_API_KEY || ""),
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", Authorization: "Bearer " + token },
+        body: JSON.stringify({ idToken: idToken }),
+      }
+    );
+    const data = await res.json();
+    const user = data.users && data.users[0];
+    if (!user) return null;
+    return { uid: user.localId, email: user.email || null, displayName: user.displayName || null };
+  } catch (e) { return null; }
+}
+
+/**
+ * Mirror a Firebase-authenticated user into the Supabase Postgres `users`
+ * table (the relational admin/analytics store) and the D1 wallet. This is the
+ * glue that connects Cloudflare (gateway) + Firebase (live auth/backend) +
+ * Supabase (Postgres mirror). Idempotent — safe to call on every app launch.
+ */
+async function mirrorFirebaseUser(env, idToken) {
+  const fb = await verifyFirebaseToken(env, idToken);
+  if (!fb) return { ok: false, error: "invalid firebase token" };
+  // 1) Ensure a Supabase row exists for this Firebase uid (browseable mirror).
+  const mirrored = await supabaseUpsert(env, "users", {
+    uid: "fb:" + fb.uid,
+    email: fb.email,
+    display_name: fb.displayName,
+    points: 0,
+  }, "uid");
+  // 2) Ensure a D1 wallet row exists (authoritative points store).
+  const d1 = await ensureWalletD1(env, fb.uid);
+  return { ok: true, uid: fb.uid, email: fb.email, supabase: mirrored, d1: d1 };
+}
+
 /** Fetch recent Crashlytics issues for the app (real Firebase data). */
 async function crashlyticsIssues(env, limit) {
   const token = await firebaseAccessToken(env, "https://www.googleapis.com/auth/firebase.crashlytics");
@@ -1624,9 +1671,19 @@ async function handleAdmin(update) {
   if (cmd === "/supabase") {
     await tgAction(ENV.ADMIN_BOT_TOKEN, chatId);
     const ok = await supabaseProvision(ENV) && await supabaseKeepAlive(ENV);
+    let detail = "";
+    if (ok) {
+      try {
+        const base = ENV.SUPABASE_URL, key = ENV.SUPABASE_SERVICE_ROLE;
+        const users = await fetch(base + "/rest/v1/users?select=uid&limit=1", { headers: { apikey: key, Authorization: "Bearer " + key } });
+        const cnt = await fetch(base + "/rest/v1/users?select=count", { headers: { apikey: key, Authorization: "Bearer " + key, Prefer: "count=exact" } });
+        const n = cnt.headers.get("content-range");
+        detail = "\n👥 users: " + (n ? n.split("/")[1] : "?") + "\n🔗 Firebase→Supabase mirror: ON (" + (ENV.FIREBASE_PROJECT_ID || "aaa-infinity-ai") + ")";
+      } catch (e) { detail = ""; }
+    }
     await tgSend(ENV.ADMIN_BOT_TOKEN, chatId,
-      ok ? "🟢 Supabase active — mirror schema provisioned and reachable."
-         : "🔴 Supabase unreachable — project paused, or keys missing.");
+      (ok ? "🟢 Supabase active — mirror schema provisioned and reachable." + detail
+          : "🔴 Supabase unreachable — project paused, or keys missing."));
     return;
   }
 
@@ -1926,8 +1983,15 @@ async function handleAdmin(update) {
     checks.push("🛢 D1: " + (d1Ok ? "✅" : "❌"));
     const v = (await ENV.AAA_KV.get("app_version_name")) || "?";
     const dl = (await ENV.AAA_KV.get("app_downloads")) || "0";
+    let fbOk = false, sbOk = false;
+    try { fbOk = !!(ENV.FIREBASE_SERVICE_ACCOUNT && JSON.parse(ENV.FIREBASE_SERVICE_ACCOUNT).client_email); } catch (e) {}
+    try { sbOk = await supabaseKeepAlive(ENV); } catch (e) {}
+    const link = (fbOk && sbOk) ? " ✅ synced" : "";
     await tgSend(ENV.ADMIN_BOT_TOKEN, chatId,
       "🩺 <b>System Status</b>\n" + checks.join("\n") +
+      "\n🔥 Firebase: " + (fbOk ? "✅" : "❌") +
+      "\n🐘 Supabase: " + (sbOk ? "✅" : "❌") +
+      "\n🔗 Gateway→Firebase→Supabase:" + link +
       "\n\n📦 App v" + v + " · ⬇️ " + dl + " downloads\n☁️ Account 0990a77a…");
     return;
   }
@@ -2148,6 +2212,17 @@ async function rejectApp(env, id, reason) {
         "⚠️ Your app <b>" + htmlEscape(app.name) + "</b> was rejected. Reason: " + htmlEscape(reason || "—"));
     }
   }
+}
+
+/** Ensure a D1 wallet row exists for a uid (returns current points). */
+async function ensureWalletD1(env, uid) {
+  if (!env.AAA_DB) return null;
+  const now = Date.now();
+  await env.AAA_DB.prepare(
+    "INSERT OR IGNORE INTO users(uid, points, lifetime_earned, created_at) VALUES (?, 100, 0, ?)"
+  ).bind(uid, now).run();
+  const row = await env.AAA_DB.prepare("SELECT points FROM users WHERE uid = ?").bind(uid).first();
+  return row ? (row.points || 0) : 0;
 }
 
 async function addPointsD1(env, uid, amount, reason) {
@@ -2863,6 +2938,13 @@ async function handle(request, env) {
       const denied = requireSecret(request, ENV);
       if (denied) return denied;
       return json({ ok: true, result: await cleanup(env) });
+    }
+    // Firebase -> Supabase + D1 mirror sync. App calls this after Firebase login
+    // with the Firebase ID token. Connects all three backends behind the gateway.
+    if (request.method === "POST" && url.pathname === "/api/firebase-sync") {
+      const body = await request.json().catch(function () { return {}; });
+      const res = await mirrorFirebaseUser(ENV, body.idToken);
+      return json(res, res.ok ? 200 : 401);
     }
     if ((request.method === "GET" || request.method === "POST") && url.pathname === "/api/ask") {
       let q = "", provider = "gemini", userKey = null;
