@@ -120,6 +120,8 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '<meta property="og:description" content="Unlimited free AI chat, image generation & downloaders. Download for Android.">' +
     '<meta property="og:image" content="/api/asset/public/Logo.png">' +
     '<meta property="og:type" content="website">' +
+    '<link rel="icon" href="/api/asset/public/Logo.png" type="image/png">' +
+    '<link rel="apple-touch-icon" href="/api/asset/public/Logo.png">' +
     '<title>Ari AI — Free AI Super App for Android</title>' +
     '<style>' +
     '*{box-sizing:border-box;margin:0;padding:0}:root{color-scheme:dark}' +
@@ -132,7 +134,7 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     'background:rgba(8,8,15,.7);border-bottom:1px solid rgba(255,255,255,.06)}' +
     '.nav .wrap{display:flex;align-items:center;justify-content:space-between;padding:12px 20px}' +
     '.brand{display:flex;align-items:center;gap:10px;font-weight:800}' +
-    '.brand img{width:30px;height:30px;border-radius:8px}' +
+    '.brand img{width:32px;height:32px;border-radius:9px;box-shadow:0 2px 10px rgba(124,77,255,.4)}' +
     '.nav a.dl{background:linear-gradient(135deg,#7c4dff,#ff4d9d);padding:9px 18px;border-radius:50px;font-weight:700;font-size:.9rem}' +
     '.nav-actions{display:flex;align-items:center;gap:10px}' +
     '.nav-fb{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;' +
@@ -300,10 +302,10 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '</div></div></section>' +
     '<div class="divider"></div>' +
     // telegram
-    '<section><div class="wrap"><h2 class="reveal">Or use our Telegram bots</h2>' +
-    '<p class="lead reveal">Chat with AI right inside Telegram.</p>' +
+    '<section><div class="wrap"><h2 class="reveal">Stay connected on Telegram</h2>' +
+    '<p class="lead reveal">Get the app, link your account and get update alerts — AI lives inside the app.</p>' +
     '<div class="tg reveal">' +
-    '<a href="https://t.me/AAA_Free_Ai_bot">🤖 Free AI Bot</a>' +
+    '<a href="https://t.me/AAA_Free_Ai_bot">🤖 Companion Bot</a>' +
     '<a href="https://t.me/AAA_Login_bot">🔐 Login Bot</a>' +
     '</div></div></section>' +
     '<div class="divider"></div>' +
@@ -935,52 +937,33 @@ async function handleFreeAi(update) {
       const credited = await creditReferral(referrerId, from.id);
       if (credited) {
         await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId,
-          "🎉 <b>Welcome to AAA Free AI!</b>\nYou joined via a friend's invite — they just earned bonus points. Send any message to start chatting free.");
-        return;
+          "🎉 <b>Welcome to AAA Free AI!</b>\nYou joined via a friend's invite — they just earned bonus points.");
       }
     }
-    const linked = env_AAA_KVget(ENV, userId);
+    // AI is app-only now. The Telegram bot is a companion that points users to
+    // the Android app, where all AI features live.
     await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId,
-      "<b>AAA Free AI</b>\nSend any message and I'll answer using the free AI endpoints.\n\n" +
-      "💡 Each message costs " + BOT_MSG_COST + " points (" + BOT_DAILY_FREE + " free per day). " +
-      "Link the Ari AI app to share your wallet & earn daily rewards:\n" +
-      "1) Install Ari AI (t.me/AAA_Free_Ai_bot has the link)\n2) Profile → Link Telegram.");
+      "👋 <b>Hi! I'm the Ari AI companion bot.</b>\n\n" +
+      "🤖 <b>AI chat, images, downloaders & the creative studio now live inside the Ari AI app</b> — " +
+      "the Telegram bot no longer answers AI questions.\n\n" +
+      "📲 <b>Get the app (100% free):</b> https://aaa-ai-bot.aaateam.workers.dev/app.apk\n" +
+      "🌐 Or browse our <b>App Store</b>: https://aaa-store.aaateam.workers.dev/store\n\n" +
+      "Install the app to start using AI right away.",
+      { reply_markup: { inline_keyboard: [[
+        { text: "📲 Download Ari AI", url: "https://aaa-ai-bot.aaateam.workers.dev/app.apk" },
+        { text: "🛍 App Store", url: "https://aaa-store.aaateam.workers.dev/store" },
+      ]] } });
     return;
   }
-  // Resolve wallet + daily free quota.
-  const { uid, freeLeft } = await resolveBotUid(ENV, userId);
-  // If not linked to the app, require linking before charging/answering.
-  const isLinked = uid !== ("tg_" + userId);
-  if (!isLinked && freeLeft <= 0) {
-    await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId,
-      "🔒 <b>Free messages used up for today.</b>\nLink the Ari AI app to keep chatting " +
-      "and earn daily reward points (Profile → Link Telegram), or reply tomorrow.");
-    return;
-  }
-  await tgAction(ENV.FREE_AI_BOT_TOKEN, chatId);
-  const persona =
-    "You are Ari, a friendly, helpful free AI assistant inside a Telegram bot. " +
-    "Answer clearly and concisely in plain text. If asked what you can do, mention " +
-    "the Ari AI app has AI chat, image generation, downloaders and daily reward points.\n\n" +
-    "User: " + text + "\nAri:";
-  const reply = await askAi(persona, "gemini");
-  if (freeLeft > 0) {
-    await bumpFreeUsage(ENV, userId);
-  } else {
-    // If the wallet backend is unavailable, don't block the user — answer for free.
-    if (!ENV.AAA_DB) {
-      // no-op: degrade gracefully
-    } else {
-      const spend = await botSpend(uid, BOT_MSG_COST, "bot-chat", ENV);
-      if (!spend.ok) {
-        await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId,
-          "⚠️ <b>Not enough points.</b> You need " + BOT_MSG_COST + " points per message. " +
-          "Link the Ari AI app and do daily check-ins / watch ads to earn more.");
-        return;
-      }
-    }
-  }
-  await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId, reply);
+  // Any non-command message: AI is app-only — redirect to the app.
+  await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId,
+    "🤖 <b>AI is in the app, not the bot.</b>\n\n" +
+    "The free Telegram bot can't answer AI questions — open the Ari AI app to chat, " +
+    "generate images, use downloaders and the creative studio.\n\n" +
+    "📲 Download: https://aaa-ai-bot.aaateam.workers.dev/app.apk",
+    { reply_markup: { inline_keyboard: [[
+      { text: "📲 Get Ari AI (free)", url: "https://aaa-ai-bot.aaateam.workers.dev/app.apk" },
+    ]] } });
 }
 
 // Small helper so /start can report link status without awaiting resolveBotUid twice.
@@ -1102,7 +1085,7 @@ async function sendAdminMenu(chatId) {
 async function setupWebhooks(origin) {
   const base = (origin || (typeof URL !== "undefined" ? "" : "")) || "";
   const bots = [
-    { token: ENV.FREE_AI_BOT_TOKEN, path: "/telegram/free", commands: [{ command: "start", description: "Start chatting with free AI" }] },
+    { token: ENV.FREE_AI_BOT_TOKEN, path: "/telegram/free", commands: [{ command: "start", description: "Get the Ari AI app (AI is app-only)" }] },
     { token: ENV.LOGIN_BOT_TOKEN, path: "/telegram/login", commands: [{ command: "start", description: "Sign in to the Ari AI app" }] },
     { token: ENV.ADMIN_BOT_TOKEN, path: "/telegram/admin", commands: [
       { command: "help", description: "Show admin commands" },
@@ -1203,6 +1186,14 @@ async function sendCredits(chatId) {
   await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, out);
 }
 
+/** Returns true if the given chat id is an authenticated admin (password login
+ *  or on the KV admin_list). Shared by the message + callback_query paths. */
+async function isAdminAuthed(env, chatId) {
+  const adminList = (await env.AAA_KV.get("admin_list") || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+  if (adminList.indexOf(String(chatId)) >= 0) return true;
+  return !!(await env.AAA_KV.get("admin_auth:" + chatId));
+}
+
 async function handleAdmin(update) {
   // Inline keyboard button taps (grid menu) are delivered as callback_query.
   if (update.callback_query) {
@@ -1214,7 +1205,8 @@ async function handleAdmin(update) {
       // Re-route the button callback as if the admin typed the command.
       await handleAdmin({ message: { chat: { id: chatId }, text: data, from: cq.from } });
     } else if (data && (data.startsWith("approve:") || data.startsWith("reject:"))) {
-      if (!authed && !listAuthed) {
+      const authed = await isAdminAuthed(ENV, chatId);
+      if (!authed) {
         await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🔐 Send: <code>/login Arif-Abid</code> first.");
       } else {
         const id = data.slice(data.indexOf(":") + 1);
@@ -1222,8 +1214,7 @@ async function handleAdmin(update) {
           await approveApp(ENV, id);
           await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ Approved <code>" + htmlEscape(id) + "</code>.");
         } else {
-          const reason = (args && args[1]) ? args.slice(1).join(" ") : "Rejected by admin";
-          await rejectApp(ENV, id, reason);
+          await rejectApp(ENV, id, "Rejected by admin");
           await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "❌ Rejected <code>" + htmlEscape(id) + "</code>.");
         }
         // Update the original review message to remove its buttons.
@@ -1247,9 +1238,7 @@ async function handleAdmin(update) {
   // Admin auth via password (stored in KV, default "Arif-Abid"). No hardcoded chat id.
   // Optionally, a KV list "admin_list" (comma-separated chat ids) auto-grants access.
   const ADMIN_PASSWORD = (await ENV.AAA_KV.get("admin_password")) || "Arif-Abid";
-  const adminList = (await ENV.AAA_KV.get("admin_list") || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
-  const listAuthed = adminList.indexOf(String(chatId)) >= 0;
-  const authed = listAuthed || (await ENV.AAA_KV.get("admin_auth:" + chatId));
+  const authed = await isAdminAuthed(ENV, chatId);
   if (cmd === "/login") {
     const pw = (args[1] || "").trim();
     if (pw === ADMIN_PASSWORD) {
@@ -1263,7 +1252,7 @@ async function handleAdmin(update) {
   }
   // Manage the multi-admin list (owner-only convenience helpers).
   if (cmd === "/adminadd" || cmd === "/adminrm") {
-    if (!listAuthed && !authed) {
+    if (!authed) {
       await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🔐 Send: <code>/login &lt;password&gt;</code> first.");
       return;
     }
