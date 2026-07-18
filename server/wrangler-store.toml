@@ -1,0 +1,22 @@
+name = "aaa-store"
+main = "src/store-worker.js"
+account_id = "0990a77a6f54b26e433668dc215320fb"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# Observability: logs + traces (free tier).
+observability = { enabled = true }
+
+# SHARED bindings — same KV/D1/R2 as aaa-ai-bot so the store and bot see the
+# same accounts, apps catalog, and APK blobs.
+kv_namespaces = [
+  { binding = "AAA_KV", id = "631dab0fc15e41a08abf896ae55af5a5" }
+]
+
+d1_databases = [
+  { binding = "AAA_DB", database_name = "aaa_db", database_id = "b5be290f-6416-44ac-af92-07e76b7d33ed" }
+]
+
+r2_buckets = [
+  { binding = "aaa_assets", bucket_name = "aaa-assets" }
+]

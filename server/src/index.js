@@ -352,6 +352,44 @@ async function getAsset(env, key) {
   return await env.aaa_assets.get(key);
 }
 
+/**
+ * Native Telegram Login page. Embeds the official Telegram Login Widget for
+ * @AAA_Login_bot, pointed at the configured Login domain. On success Telegram
+ * POSTs the signed fields to `data-auth-url` (= /api/telegram-widget-verify),
+ * which we verify (HMAC over the bot token) and then notify the opener window.
+ */
+function telegramLoginPage(origin, botUsername, domain) {
+  const verifyUrl = origin + "/api/telegram-widget-verify";
+  const back = origin + "/store";
+  return '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<meta name="theme-color" content="#0b0b13">' +
+    '<title>Sign in with Telegram · Ari AI</title>' +
+    '<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;' +
+    'background:radial-gradient(circle at 30% 20%,#2a1b5e,#0b0b13 60%);color:#f2f2f7;min-height:100vh;' +
+    'display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center}' +
+    '.card{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:24px;padding:36px 28px;max-width:420px;width:100%}' +
+    'h1{font-size:1.5rem;margin-bottom:6px}.sub{color:#a6a6b8;margin-bottom:26px;font-size:.95rem}' +
+    '.tg{margin:18px 0}.note{color:#8a8aa0;font-size:.8rem;margin-top:18px}' +
+    'a.back{color:#9db4ff;font-size:.85rem;text-decoration:none}</style></head>' +
+    '<body><div class="card"><h1>Sign in with Telegram</h1>' +
+    '<p class="sub">Secure, one-tap login for the Ari AI App Store.</p>' +
+    '<div class="tg"><script async src="https://telegram.org/js/telegram-widget.js?22" ' +
+    'data-telegram-login="' + (botUsername || "AAA_Login_bot") + '" ' +
+    'data-size="large" data-userpic="false" data-radius="16" ' +
+    'data-auth-url="' + verifyUrl + '" data-request-access="write"></script></div>' +
+    '<p class="note">By continuing you agree to link your Telegram account.</p>' +
+    '<a class="back" href="' + back + '">← Back to store</a></div>' +
+    // After the widget verifies, the server returns ok; Telegram then redirects
+    // the opener. We also poll our own verify result and message the app.
+    '<script>(function(){' +
+    'function done(u){try{if(window.opener)window.opener.postMessage({type:"tg-login",user:u},"*");}catch(e){}' +
+    'try{window.close();}catch(e){}}' +
+    'window.addEventListener("message",function(e){if(e.data&&e.data.type==="tg-login-ok"){done(e.data.user);}});' +
+    '})();</script>' +
+    '</body></html>';
+}
+
 /** Build a QR-code data URI for a URL (best-effort; returns "" on failure). */
 async function makeQr(target) {
   try {
@@ -674,7 +712,7 @@ async function callHf(q, userKey) {
  * marked exhausted (quota/credits used up) and falls through to the next healthy
  * provider, ending at the public felix endpoint. A single /setkey swaps a key live.
  */
-async function askAi(q, provider, userKey) {
+export async function askAi(q, provider, userKey) {
   const gemOk = !(await isExhausted(ENV, "gemini"));
   const groqOk = !(await isExhausted(ENV, "groq"));
   const hfOk = !(await isExhausted(ENV, "hf"));
@@ -746,7 +784,7 @@ function statsBlock(s) {
 }
 
 /** Ask the background admin AI a question, grounded with an optional context. */
-async function adminAi(question, context) {
+export async function adminAi(question, context) {
   const prompt = ADMIN_AI_PERSONA + "\n\n" + (context ? context + "\n\n" : "") +
     "OWNER: " + question + "\nASSISTANT:";
   return await askAi(prompt, "gemini");
@@ -800,9 +838,11 @@ function base64Encode(str) {
   catch (e) { return btoa(str); }
 }
 
-async function verifyTelegramWidget(fields) {
+export async function verifyTelegramWidget(fields) {
   const token = ENV.LOGIN_BOT_TOKEN;
   if (!token || !fields || !fields.hash || !fields.auth_date) return false;
+  // Optional strictness: ensure the widget came from our configured bot.
+  if (ENV.LOGIN_BOT_ID && fields.id && String(fields.id) !== String(ENV.LOGIN_BOT_ID)) return false;
   const enc = new TextEncoder();
   // Build the data-check string exactly as Telegram specifies.
   const ordered = Object.keys(fields)
@@ -1173,6 +1213,26 @@ async function handleAdmin(update) {
     if (data && data.startsWith("/")) {
       // Re-route the button callback as if the admin typed the command.
       await handleAdmin({ message: { chat: { id: chatId }, text: data, from: cq.from } });
+    } else if (data && (data.startsWith("approve:") || data.startsWith("reject:"))) {
+      if (!authed && !listAuthed) {
+        await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🔐 Send: <code>/login Arif-Abid</code> first.");
+      } else {
+        const id = data.slice(data.indexOf(":") + 1);
+        if (data.startsWith("approve:")) {
+          await approveApp(ENV, id);
+          await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ Approved <code>" + htmlEscape(id) + "</code>.");
+        } else {
+          const reason = (args && args[1]) ? args.slice(1).join(" ") : "Rejected by admin";
+          await rejectApp(ENV, id, reason);
+          await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "❌ Rejected <code>" + htmlEscape(id) + "</code>.");
+        }
+        // Update the original review message to remove its buttons.
+        try {
+          await tgApi(ENV.ADMIN_BOT_TOKEN, "editMessageReplyMarkup", {
+            chat_id: chatId, message_id: cq.message.message_id, reply_markup: { inline_keyboard: [] },
+          });
+        } catch (e) {}
+      }
     }
     return;
   }
@@ -1497,11 +1557,115 @@ async function handleAdmin(update) {
     return;
   }
 
+  // ---- App Store moderation (shared with the aaa-store worker) ----
+  if (cmd === "/review") {
+    if (!ENV.AAA_DB) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Store DB unavailable."); return; }
+    const apps = await ENV.AAA_DB.prepare(
+      "SELECT id, name, category, short_desc, owner_uid, version, package_name FROM store_apps WHERE status = 'pending' ORDER BY submitted_at ASC LIMIT 10"
+    ).all();
+    const rows = (apps && apps.results) || [];
+    if (!rows.length) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ No apps waiting for review."); return; }
+    for (const a of rows) {
+      const owner = await getStoreUserName(ENV, a.owner_uid);
+      const txt =
+        "📦 <b>" + htmlEscape(a.name) + "</b>\n" +
+        "Category: " + htmlEscape(a.category) + "\n" +
+        "Version: " + htmlEscape(a.version || "?") + " · pkg: <code>" + htmlEscape(a.package_name || "?") + "</code>\n" +
+        "By: " + htmlEscape(owner) + "\n" +
+        (a.short_desc ? htmlEscape(a.short_desc) + "\n" : "") +
+        "ID: <code>" + a.id + "</code>";
+      const kb = {
+        inline_keyboard: [[
+          { text: "✅ Approve", callback_data: "approve:" + a.id },
+          { text: "❌ Reject", callback_data: "reject:" + a.id },
+        ]],
+      };
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, txt, { reply_markup: kb });
+    }
+    return;
+  }
+
+  if (cmd === "/apps") {
+    if (!ENV.AAA_DB) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Store DB unavailable."); return; }
+    const apps = await ENV.AAA_DB.prepare(
+      "SELECT id, name, status, downloads, owner_uid FROM store_apps ORDER BY submitted_at DESC LIMIT 12"
+    ).all();
+    const rows = (apps && apps.results) || [];
+    if (!rows.length) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "No apps yet."); return; }
+    let out = "📱 <b>Recent apps</b>\n";
+    for (const a of rows) {
+      out += "• [" + htmlEscape(a.status) + "] " + htmlEscape(a.name) + " — " + (a.downloads || 0) + " dl · by " + htmlEscape(await getStoreUserName(ENV, a.owner_uid)) + "\n";
+    }
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, out);
+    return;
+  }
+
   // Any non-command text is treated as a question for the background Admin AI.
   await tgAction(ENV.ADMIN_BOT_TOKEN, chatId);
   const stats = await gatherStats(ENV);
   const ans = await adminAi(text, statsBlock(stats));
   await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🤖 " + htmlEscape(ans));
+}
+
+async function getStoreUserName(env, uid) {
+  if (!env.AAA_DB || !uid) return uid || "unknown";
+  const r = await env.AAA_DB.prepare("SELECT display_name, tg_username FROM store_users WHERE uid = ?").bind(uid).first();
+  if (r) return r.display_name || r.tg_username || uid;
+  return uid;
+}
+
+async function approveApp(env, id) {
+  if (!env.AAA_DB) return;
+  const app = await env.AAA_DB.prepare("SELECT id, owner_uid, name, package_name, apk_r2_key FROM store_apps WHERE id = ?").bind(id).first();
+  if (!app) return;
+  // If this package already has a published version, supersede it (delete its R2 blob).
+  if (app.package_name) {
+    const prev = await env.AAA_DB.prepare(
+      "SELECT id, apk_r2_key FROM store_apps WHERE package_name = ? AND status = 'published' LIMIT 1"
+    ).bind(app.package_name).all();
+    for (const p of (prev && prev.results) || []) {
+      if (p.id !== app.id && p.apk_r2_key && env.aaa_assets) {
+        try { await env.aaa_assets.delete(p.apk_r2_key); } catch (e) {}
+        await env.AAA_DB.prepare("UPDATE store_apps SET status = 'superseded' WHERE id = ?").bind(p.id).run();
+      }
+    }
+  }
+  await env.AAA_DB.prepare(
+    "UPDATE store_apps SET status = 'published', approved_at = ? WHERE id = ?"
+  ).bind(Date.now(), id).run();
+  await env.AAA_DB.prepare(
+    "UPDATE store_users SET apps_count = apps_count + 1 WHERE uid = ?"
+  ).bind(app.owner_uid).run();
+  // Notify the developer.
+  if (env.AAA_KV) {
+    const prof = await env.AAA_KV.get("profile:" + app.owner_uid);
+    let chatId = null;
+    if (prof) { try { chatId = JSON.parse(prof).uid; } catch (e) {} }
+    if (!chatId && app.owner_uid.startsWith("tg_")) chatId = app.owner_uid.slice(3);
+    if (chatId) {
+      await tgSendSafe(env.LOGIN_BOT_TOKEN, chatId,
+        "🎉 Your app <b>" + htmlEscape(app.name) + "</b> was approved and is now live in the store!");
+    }
+  }
+}
+
+async function rejectApp(env, id, reason) {
+  if (!env.AAA_DB) return;
+  const app = await env.AAA_DB.prepare("SELECT id, owner_uid, name FROM store_apps WHERE id = ?").bind(id).first();
+  if (!app) return;
+  await env.AAA_DB.prepare(
+    "UPDATE store_apps SET status = 'rejected', reject_reason = ? WHERE id = ?"
+  ).bind(reason || "Rejected by admin", id).run();
+  if (env.AAA_KV) {
+    let chatId = null;
+    const prof = await env.AAA_KV.get("profile:" + app.owner_uid);
+    if (prof) { try { chatId = JSON.parse(prof).uid; } catch (e) {} }
+    if (!chatId && app.owner_uid.startsWith("tg_")) chatId = app.owner_uid.slice(3);
+    if (chatId) {
+      await tgSendSafe(env.LOGIN_BOT_TOKEN, chatId,
+        "⚠️ Your app <b>" + htmlEscape(app.name) + "</b> was rejected. Reason: " + htmlEscape(reason || "—"));
+    }
+  }
 }
 
 async function addPointsD1(env, uid, amount, reason) {
@@ -1999,6 +2163,19 @@ async function handle(request, env) {
     ENV = env || {};
     const url = new URL(request.url);
 
+    // Self-healing webhook registration: if the bots' webhooks haven't been
+    // registered (or the flag is stale), (re)register them once per ~24h. This
+    // keeps Telegram login + bots working even if a deploy forgot the explicit
+    // setup step. Fire-and-forget (no await) so it never slows requests.
+    if (env.AAA_KV) {
+      const flag = await env.AAA_KV.get("webhooks_ok");
+      if (!flag) {
+        setupWebhooks(url.origin).then(function (res) {
+          env.AAA_KV.put("webhooks_ok", JSON.stringify(res), { expirationTtl: 60 * 60 * 24 }).catch(function () {});
+        }).catch(function () {});
+      }
+    }
+
     if (request.method === "POST" && url.pathname === "/telegram/free") {
       const update = await request.json().catch(function () { return {}; });
       await handleFreeAi(update);
@@ -2015,6 +2192,8 @@ async function handle(request, env) {
       const denied = requireSecret(request, ENV);
       if (denied) return denied;
       const r = await setupWebhooks(url.origin);
+      // Reset the self-heal flag so the new registration is trusted immediately.
+      if (ENV.AAA_KV) await ENV.AAA_KV.put("webhooks_ok", JSON.stringify(r), { expirationTtl: 60 * 60 * 24 }).catch(function () {});
       return json({ ok: true, result: r });
     }
     if (request.method === "GET" && url.pathname === "/api/verify") {
@@ -2241,7 +2420,20 @@ async function handle(request, env) {
     if (request.method === "POST" && url.pathname === "/api/telegram-widget-verify") {
       const body = await request.json().catch(function () { return {}; });
       const ok = await verifyTelegramWidget(body);
-      return json({ ok: ok });
+      if (!ok) return json({ ok: false });
+      // Verification passed. Return a tiny page that hands the user back to the
+      // opener (the app's WebView / tab) and closes itself.
+      const user = { id: body.id, username: body.username, first_name: body.first_name, last_name: body.last_name, photo_url: body.photo_url };
+      const html = '<!doctype html><html><head><meta charset="utf-8"></head><body><script>' +
+        'var u=' + JSON.stringify(user) + ';' +
+        'try{if(window.opener)window.opener.postMessage({type:"tg-login-ok",user:u},"*");}catch(e){}' +
+        'try{parent.postMessage({type:"tg-login-ok",user:u},"*");}catch(e){}' +
+        // Bridge for the in-app WebView (window.opener is null there).
+        'try{if(window.TgLoginBridge)window.TgLoginBridge.onResult(JSON.stringify(u));}catch(e){}' +
+        'document.write("✅ Signed in as "+(u.username||u.id)+". You can close this tab.");' +
+        'setTimeout(function(){try{window.close();}catch(e){}},800);' +
+        '</script></body></html>';
+      return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
     }
     if (request.method === "GET" && url.pathname === "/api/image") {
       const prompt = url.searchParams.get("prompt") || "a cat";
@@ -2327,6 +2519,13 @@ if (request.method === "GET" && url.pathname === "/api/search") {
       const qr = await makeQr(url.origin + "/app.apk");
       return new Response(downloadPage(available, versionName, sizeLabel, stats, changelog, qr), {
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=120" },
+      });
+    }
+    // Native Telegram login page (Login Widget). Reused by the store for accounts.
+    if (request.method === "GET" && (url.pathname === "/login" || url.pathname === "/store/login")) {
+      const bot = (ENV.LOGIN_BOT_USERNAME || "AAA_Login_bot");
+      return new Response(telegramLoginPage(url.origin, bot, ENV.LOGIN_DOMAIN), {
+        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
       });
     }
     return new Response("Ari AI bot server.", { headers: { "content-type": "text/plain" } });

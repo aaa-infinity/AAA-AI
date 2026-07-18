@@ -25,16 +25,34 @@ jobs:
       - name: Syntax check
         run: node --check src/index.js
 
-      - name: Deploy to Cloudflare
-        run: npx -y wrangler@3 deploy
+      - name: Deploy to Cloudflare (bot worker)
+        run: npx -y wrangler deploy
         env:
           # Add these in the repo: Settings -> Secrets and variables -> Actions
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      - name: Deploy to Cloudflare (store worker)
+        run: npx -y wrangler deploy --config wrangler-store.toml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Register Telegram bot webhooks
+        # Guarantees login + bots keep working after every deploy (no manual step).
+        run: |
+          curl -s -X POST "$WORKER_URL/api/setup-webhooks" \
+            -H "x-app-secret: $APP_SHARED_SECRET" \
+            -H "content-type: application/json"
+        env:
+          WORKER_URL: https://aaa-ai-bot.aaateam.workers.dev
+          APP_SHARED_SECRET: ${{ secrets.APP_SHARED_SECRET }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Apply D1 migrations
         # The app's points/premium/referrals depend on these tables existing.
-        run: npx -y wrangler@3 d1 migrations apply aaa_db --remote
+        run: npx -y wrangler d1 migrations apply aaa_db --remote
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

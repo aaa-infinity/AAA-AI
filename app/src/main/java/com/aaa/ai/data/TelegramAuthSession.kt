@@ -89,6 +89,13 @@ object TelegramAuthSession {
         }
     }
 
+    /** Read the pending (unverified) token, if any. Used to resume polling after
+     *  the user returns from the Telegram app. */
+    suspend fun loadPendingToken(context: Context): String? {
+        val prefs = context.sessionStore.data.first()
+        return if (prefs[VERIFIED] == true) null else prefs[TOKEN]
+    }
+
     /** Clear the session (sign-out / reset). */
     suspend fun clear(context: Context) {
         context.sessionStore.edit { it.clear() }

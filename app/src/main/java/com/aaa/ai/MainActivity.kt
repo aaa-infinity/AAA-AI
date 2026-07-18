@@ -71,4 +71,13 @@ class MainActivity : ComponentActivity() {
             onClosed = { /* re-preload handled by AdMobManager */ }
         )
     }
+
+    /**
+     * Resume an in-progress Telegram login when the user returns from the
+     * Telegram app (the poll may have been cancelled while we were backgrounded).
+     */
+    override fun onResume() {
+        super.onResume()
+        authViewModel.resumeTelegramLogin()
+    }
 }

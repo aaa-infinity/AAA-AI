@@ -36,6 +36,10 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.aaa.ai.AuthViewModel
 import kotlinx.coroutines.flow.collectLatest
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
+import com.aaa.ai.ui.TelegramLoginWebView
 
 @Composable
 fun LoginScreen(
@@ -47,6 +51,21 @@ fun LoginScreen(
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var isSignUp by remember { mutableStateOf(false) }
+    var showTgWeb by remember { mutableStateOf(false) }
+
+    val botServer = stringResource(com.aaa.ai.R.string.bot_server_url)
+    if (showTgWeb) {
+        TelegramLoginWebView(
+            url = botServer.trimEnd('/') + "/login",
+            onResult = { user ->
+                showTgWeb = false
+                authViewModel.completeTelegramLogin(user)
+            },
+            onClose = { showTgWeb = false },
+            modifier = Modifier.fillMaxSize()
+        )
+        return
+    }
 
     val googleLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -129,6 +148,15 @@ fun LoginScreen(
                 Icon(Icons.Filled.Send, contentDescription = null, modifier = Modifier.size(18.dp).padding(end = 8.dp))
                 Text("Verify and Login via Telegram Bot")
             }
+        }
+
+        OutlinedButton(
+            onClick = { showTgWeb = true },
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Filled.Send, contentDescription = null, modifier = Modifier.size(18.dp).padding(end = 8.dp))
+            Text("Sign in with Telegram (web)")
         }
 
         if (tgState is AuthViewModel.TelegramLoginState.Failed) {
