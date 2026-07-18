@@ -213,3 +213,28 @@ creds as secrets + add a widget-login page.
 
 ## Out of scope (later)
 - In-app store browsing, paid apps, auto virus-scan, owner edit/delete.
+
+---
+
+## STATUS (updated 2026-07-18)
+- PART A (login) — COMPLETE. Webhook self-heal in `handle()` + CI registers
+  webhooks post-deploy. Native Telegram Login Widget added (`/login`,
+  `/store/login`), in-app WebView bridge (`TelegramLoginWebView.kt`), poll-resume
+  on `MainActivity.onResume()`.
+- PART B (store) — COMPLETE & VERIFIED LIVE.
+  - Files: `server/src/storeShared.js`, `server/src/store-worker.js`,
+    `server/wrangler-store.toml`, `server/migrations/0003_store.sql`.
+  - Both workers deployed (CI does W1 + W2 + D1 migration + webhook reg).
+  - Admin review wired: bot `/review` lists pending with ✅/❌ inline buttons
+    (Worker 1 `handleAdmin` + `approveApp`/`rejectApp`); store API also has
+    `/api/store/apps/<id>/approve|reject` (admin session). Status vocab unified
+    to `pending` → `approved` → `superseded`/`rejected`.
+  - End-to-end tested: homepage/list/detail render; Telegram widget login creates
+    a real session token; upload→pending→approve→appears publicly; R2 APK
+    streaming download with correct content-type + disposition; supersede deletes
+    old R2 blob. All verified against live `aaa-store.aaateam.workers.dev`.
+  - Secrets `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` set as repo Actions
+    secrets (via PAT from `.credentials.local`) so CI can deploy.
+- NOTE: D1 migration tracker marked `0003` applied but `store_apps` didn't
+  persist first run; re-running the SQL file directly created it. Live DB now
+  has both `store_users` and `store_apps`. Test rows cleaned up.
