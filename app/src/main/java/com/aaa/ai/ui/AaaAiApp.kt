@@ -2,13 +2,17 @@ package com.aaa.ai.ui
 
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.Image
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.Box
@@ -25,6 +29,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -61,18 +66,21 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aaa.ai.AuthViewModel
 import com.aaa.ai.MainViewModel
@@ -88,6 +96,7 @@ import com.aaa.ai.ui.theme.BrandAmber
 import com.aaa.ai.ui.theme.BrandPink
 import com.aaa.ai.ui.theme.BrandPurple
 import com.aaa.ai.ui.theme.BrandTeal
+import com.aaa.ai.ui.AdBanner
 import kotlinx.coroutines.launch
 
 private enum class Screen { HOME, CHAT, DOWNLOADERS, TOOLS, GALLERIES, KEYS, PROFILE }
@@ -150,6 +159,7 @@ fun AaaAiApp(
     val appCtx = LocalContext.current
     var updateInfo by remember { mutableStateOf<com.aaa.ai.data.UpdateChecker.UpdateInfo?>(null) }
     LaunchedEffect(Unit) { updateInfo = com.aaa.ai.data.UpdateChecker.check(appCtx) }
+    var celebrate by remember { mutableStateOf(false) }
 
     fun select(screen: Screen) { selected = screen; showingResult = false }
 
@@ -164,7 +174,14 @@ fun AaaAiApp(
     )
 
     LaunchedEffect(Unit) { viewModel.insufficientEvent.collect { showInsufficient = true } }
-    LaunchedEffect(Unit) { viewModel.snackbar.collect { msg -> scope.launch { snackbarHost.showSnackbar(msg) } } }
+    LaunchedEffect(Unit) {
+        viewModel.snackbar.collect { msg ->
+            if (msg.contains("Points", ignoreCase = true) || msg.contains("added", ignoreCase = true)) {
+                celebrate = true
+            }
+            scope.launch { snackbarHost.showSnackbar(msg) }
+        }
+    }
 
     fun activate(endpoint: ApiEndpoint, param: String) {
         if (endpoint.category == ApiCategory.NSFW && !confirmed18) { pendingNsfw = endpoint; return }
@@ -268,14 +285,19 @@ fun AaaAiApp(
                 },
                 actions = {
                     val earnEnabled = !(selected == Screen.GALLERIES && activeEndpoint?.category == ApiCategory.NSFW)
+                    val rewardReady by com.aaa.ai.data.AdMobManager.isReady.collectAsState()
+                    val daily by viewModel.dailyRewardState.collectAsState()
                     Surface(
                         color = if (earnEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                         shape = MaterialTheme.shapes.small,
                         modifier = Modifier.padding(end = 8.dp)
                     ) {
-                        TextButton(onClick = onEarnRewarded, enabled = earnEnabled) {
+                        TextButton(
+                            onClick = onEarnRewarded,
+                            enabled = earnEnabled && rewardReady && !daily.claimedToday
+                        ) {
                             Icon(Icons.Filled.Star, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
-                            Text("Earn +200")
+                            Text(if (daily.claimedToday) "Claimed ✓" else "Earn +${daily.points}")
                         }
                     }
                     IconButton(onClick = { onToggleTheme(!isDark) }) {
@@ -319,8 +341,13 @@ fun AaaAiApp(
         },
         snackbarHost = { SnackbarHost(snackbarHost) }
     ) { innerPadding ->
-        Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-            when (selected) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            AnimatedContent(
+                targetState = selected,
+                label = "screenTransition"
+            ) { screen ->
+            when (screen) {
                 Screen.HOME -> HomeScreen(viewModel = viewModel, onActivate = { ep, p -> activate(ep, p) }, onEarn = onEarnRewarded)
                 Screen.CHAT -> {
                     val aiEndpoints = EndpointCatalog.byCategory(ApiCategory.AI_CHAT)
@@ -338,6 +365,7 @@ fun AaaAiApp(
                     } else {
                         if (!hasKey) {
                             Card(
+                                onClick = { select(Screen.KEYS) },
                                 shape = RoundedCornerShape(14.dp),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
@@ -348,7 +376,7 @@ fun AaaAiApp(
                                 ) {
                                     Icon(Icons.Filled.Key, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                     Text(
-                                        "Add your free API key to unlock AI chat. Watch the tutorial in Settings → Your API Keys.",
+                                        "Tap to add your free API key and unlock faster AI chat. Watch the tutorial in Your API Keys.",
                                         style = MaterialTheme.typography.bodySmall,
                                         modifier = Modifier.padding(start = 8.dp).weight(1f)
                                     )
@@ -396,6 +424,11 @@ fun AaaAiApp(
                 )
                 Screen.KEYS -> ApiKeysScreen()
             }
+            }
+            if (celebrate) {
+                RewardCelebration(onDone = { celebrate = false })
+            }
+        }
         }
     }
 }
@@ -451,10 +484,14 @@ private fun HomeScreen(
                     }
                 }
                 Spacer(Modifier.height(12.dp))
+                val daily by viewModel.dailyRewardState.collectAsState()
                 Surface(color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.18f), shape = RoundedCornerShape(50)) {
-                    TextButton(onClick = onEarn) {
+                    TextButton(onClick = onEarn, enabled = !daily.claimedToday) {
                         Icon(Icons.Filled.Star, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
-                        Text("  Earn +200 pts", color = MaterialTheme.colorScheme.onPrimary)
+                        Text(
+                            if (daily.claimedToday) "  Claimed today ✓" else "  Earn +${daily.points} pts",
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
                     }
                 }
             }
@@ -521,6 +558,9 @@ private fun HomeScreen(
                 EndpointCard(endpoint = endpoint, cost = viewModel.costFor(endpoint), onActivate = onActivate)
             }
         }
+
+        // Passive banner ad (impression revenue; non-intrusive).
+        AdBanner()
     }
 }
 
@@ -555,3 +595,41 @@ private val BrandIndigoSafe = androidx.compose.ui.graphics.Color(0xFF536DFE)
 
 private const val ADSTERRA_URL =
     "https://www.effectivecpmnetwork.com/rvipg3yyc?key=767d22f6f278a4a969cc8bb1e977455b"
+
+/**
+ * Lightweight confetti-style celebration shown when the user earns points.
+ * Emoji particles float upward and fade; purely decorative (no external assets).
+ */
+@Composable
+private fun RewardCelebration(onDone: () -> Unit) {
+    val particles = remember {
+        List(18) {
+            Triple(
+                (0..100).random() / 100f,
+                listOf("🎉", "⭐", "💎", "🔥", "✨", "🪙")[it % 6],
+                800 + (0..700).random()
+            )
+        }
+    }
+    LaunchedEffect(Unit) { kotlinx.coroutines.delay(1600); onDone() }
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        particles.forEach { (x, emoji, dur) ->
+            val offsetY by animateFloatAsState(
+                targetValue = -260f,
+                animationSpec = tween(durationMillis = dur, easing = FastOutSlowInEasing),
+                label = "confetti"
+            )
+            var shown by remember { mutableStateOf(true) }
+            LaunchedEffect(Unit) { kotlinx.coroutines.delay(dur.toLong()); shown = false }
+            if (shown) {
+                Text(
+                    emoji,
+                    fontSize = 22.sp,
+                    modifier = Modifier
+                        .offset(x = (x * 320).dp - 160.dp, y = offsetY.dp)
+                        .alpha(0.9f)
+                )
+            }
+        }
+    }
+}

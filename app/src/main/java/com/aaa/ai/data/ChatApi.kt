@@ -27,15 +27,28 @@ object ChatApi {
     private fun base(context: Context): String =
         context.getString(com.aaa.ai.R.string.bot_server_url).trimEnd('/')
 
-    /** Ask the selected model. Returns the reply text, or null on failure. */
+    /**
+     * Ask the selected model. When the user has supplied their own provider key it
+     * is sent in the POST body (never in the URL) so the Worker routes the request
+     * through their key first, falling back to the owner key only if absent.
+     * Returns the reply text, or null on failure.
+     */
     suspend fun ask(context: Context, model: Model, prompt: String): String? =
         withContext(Dispatchers.IO) {
             runCatching {
-                val url = URL("${base(context)}/api/ask?provider=${model.id}&q=${java.net.URLEncoder.encode(prompt, "UTF-8")}")
-                val conn = url.openConnection() as HttpURLConnection
-                conn.requestMethod = "GET"
+                val userKey = UserKeys.get(context, model.toProvider())
+                val conn = URL("${base(context)}/api/ask").openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"
                 conn.connectTimeout = 30000
                 conn.readTimeout = 30000
+                conn.setRequestProperty("content-type", "application/json")
+                val payload = JSONObject().apply {
+                    put("q", prompt)
+                    put("provider", model.id)
+                    if (!userKey.isNullOrBlank()) put("key", userKey)
+                }.toString()
+                conn.doOutput = true
+                conn.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
                 val code = conn.responseCode
                 val raw = if (code in 200..299) {
                     conn.inputStream.bufferedReader().use { it.readText() }
@@ -51,4 +64,10 @@ object ChatApi {
                 if (json.optBoolean("ok")) json.optString("text").takeIf { it.isNotBlank() } else null
             }.onFailure { Log.e(TAG, "ask exception", it) }.getOrNull()
         }
+
+    private fun Model.toProvider(): UserKeys.Provider = when (this) {
+        Model.GEMINI -> UserKeys.Provider.GEMINI
+        Model.GROQ -> UserKeys.Provider.GROQ
+        Model.HF -> UserKeys.Provider.HF
+    }
 }

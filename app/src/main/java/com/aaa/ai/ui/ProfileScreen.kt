@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Diamond
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Chat
@@ -40,12 +41,14 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -58,6 +61,7 @@ import coil.compose.AsyncImage
 import coil.compose.rememberImagePainter
 import com.aaa.ai.AuthViewModel
 import com.aaa.ai.MainViewModel
+import com.aaa.ai.data.AppSettings
 import com.aaa.ai.data.PointsTransaction
 import com.aaa.ai.data.TelegramLink
 import com.aaa.ai.data.UserProfile
@@ -309,6 +313,27 @@ fun ProfileScreen(
                         Icon(Icons.Filled.Chat, contentDescription = null)
                         Text("  Follow on Facebook")
                     }
+                }
+            }
+        }
+
+        item {
+            // Notifications preference (local reminders for daily rewards / updates).
+            val notifEnabled by com.aaa.ai.data.AppSettings.notificationsEnabled(ctx)
+                .collectAsState(initial = true)
+            Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Filled.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {
+                        Text("Notifications", style = MaterialTheme.typography.titleMedium)
+                        Text("Daily reward & update reminders.", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(checked = notifEnabled, onCheckedChange = {
+                        scope.launch { com.aaa.ai.data.AppSettings.setNotifications(ctx, it) }
+                    })
                 }
             }
         }

@@ -149,6 +149,10 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '.pcol h4{font-size:1rem;margin-bottom:4px}.pcol p{color:#a6a6b8;font-size:.86rem}' +
     '.ptag{display:inline-block;background:linear-gradient(135deg,#ffcf5c,#ff8fc0);color:#1a1024;font-weight:800;' +
     'padding:5px 14px;border-radius:50px;font-size:.85rem;margin-bottom:16px}' +
+    '.pbtn{display:inline-block;margin-top:24px;background:linear-gradient(135deg,#ffcf5c,#ff8fc0);color:#1a1024;' +
+    'font-weight:800;padding:14px 30px;border-radius:50px;font-size:1.02rem;transition:transform .15s,box-shadow .2s}' +
+    '.pbtn:hover{transform:translateY(-2px);box-shadow:0 14px 30px rgba(255,143,192,.4)}' +
+    '.pbtn small{display:block;font-weight:600;font-size:.78rem;opacity:.8}' +
     '/* testimonials */' +
     '.testi{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}' +
     '.tcard{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);border-radius:18px;padding:20px;text-align:left}' +
@@ -262,7 +266,9 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '<div class="pcol"><h4>🖼 HD Images</h4><p>Generate crisp, high-resolution artwork and photos.</p></div>' +
     '<div class="pcol"><h4>🚀 No limits</h4><p>Higher daily caps across chat, tools and downloads.</p></div>' +
     '<div class="pcol"><h4>🎟 Early access</h4><p>Try new features and models before everyone else.</p></div>' +
-    '</div></div></div></section>' +
+    '</div>' +
+    '<a class="pbtn" href="/app.apk">Get Ari AI Free<small>Premium unlocks inside the app</small></a>' +
+    '</div></div></section>' +
     '<div class="divider"></div>' +
     // testimonials
     '<section><div class="wrap"><h2 class="reveal">Loved by creators</h2>' +
@@ -305,7 +311,11 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '<section><div class="wrap community"><h2 class="reveal">Join the community</h2>' +
     '<p class="lead reveal">Tips, updates and giveaways — connect with us on Facebook.</p>' +
     '<a class="fb reveal" href="https://www.facebook.com/share/1BzWH5P2bF/" target="_blank" rel="noopener">' +
-    'f &nbsp; <b>Follow Ari AI on Facebook</b></a></div></section>' +
+    'f &nbsp; <b>Follow Ari AI on Facebook</b></a>' +
+    '<div class="reveal" style="margin-top:18px">' +
+    '<a class="btn primary" style="background:linear-gradient(135deg,#1877F2,#0d5cdb)" ' +
+    'href="https://www.facebook.com/sharer/sharer.php?u=' + encodeURIComponent("https://aaa-ai-bot.aaateam.workers.dev/download") +
+    '" target="_blank" rel="noopener">Share Ari AI with friends</a></div></div></section>' +
     // footer
     '<footer>&copy; ' + new Date().getFullYear() + ' Ari AI &middot; Made for creators.<br>' +
     'By installing you agree to allow updates from this source.<br>' +
@@ -1025,19 +1035,25 @@ async function handleLogin(update) {
   await tgSend(ENV.LOGIN_BOT_TOKEN, chatId, "👋 Send /start to sign in to Ari AI.");
 }
 
-/** Send the clean admin grid menu (inline keyboard). */
+/** Send the colorful, full-grid admin menu (inline keyboard).
+ *  Button labels are human-friendly (no slash commands shown). The actual
+ *  command is hidden in callback_data so the panel looks clean. */
 async function sendAdminMenu(chatId) {
+  const b = (label, data) => ({ text: label, callback_data: data });
   const GRID = {
     inline_keyboard: [
-      [{ text: "🎁 Promo", callback_data: "/promo" }, { text: "📺 Channel", callback_data: "/channel" }, { text: "📊 Report", callback_data: "/report" }],
-      [{ text: "💬 Ask AI", callback_data: "/ai" }, { text: "📈 Credits", callback_data: "/credits" }, { text: "🗄 SQL", callback_data: "/sql" }],
-      [{ text: "▶️ YouTube", callback_data: "/ytconnect" }, { text: "📺 YT Stats", callback_data: "/ytstats" }, { text: "🔑 Set Key", callback_data: "/setkey" }],
-      [{ text: "📣 Broadcast", callback_data: "/broadcast" }, { text: "👥 Stats", callback_data: "/stats" }, { text: "🎟 Keys", callback_data: "/keys" }],
-      [{ text: "⭐ Grant me", callback_data: "/grantme" }, { text: "🏆 Grant user", callback_data: "/grant" }, { text: "➕ Add admin", callback_data: "/adminadd" }],
+      [b("🎁 Drop Promo", "/promo"), b("🤖 Auto Post", "/autopost"), b("📊 Report", "/report")],
+      [b("💬 Ask Admin AI", "/ai"), b("📈 Credits", "/credits"), b("🗄 Get SQL", "/sql")],
+      [b("🔗 YouTube", "/ytconnect"), b("📺 YT Stats", "/ytstats"), b("🔑 Swap Key", "/setkey")],
+      [b("📣 Broadcast", "/broadcast"), b("👥 User Stats", "/stats"), b("🎟 Key List", "/keys")],
+      [b("⭐ Grant Me", "/grantme"), b("🏆 Grant User", "/grant"), b("➕ Add Admin", "/adminadd")],
     ],
   };
-  await tgSend(ENV.ADMIN_BOT_TOKEN, chatId,
-    "🤖 <b>Ari AI Admin Panel</b>\nTap a button or type a command.", { reply_markup: GRID });
+  const head =
+    "🤖 <b>Ari AI Control Center</b>\n" +
+    "Tap any tile — everything runs from the grid, no typing needed.\n\n" +
+    "🟣 <b>Growth</b> · 🔵 <b>Ops</b> · 🟠 <b>Media</b> · 🟢 <b>Users</b> · ⭐ <b>Access</b>";
+  await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, head, { reply_markup: GRID });
 }
 
 /** Register the Worker's own webhooks on Telegram using the bot tokens it
@@ -1090,6 +1106,20 @@ async function providerHealthLine(env) {
   return out.join(" · ");
 }
 
+/** Read the live json2video credit balance (number) for a given key, or null. */
+async function json2videoBalance(env, key) {
+  if (!key) return null;
+  try {
+    const ar = await fetch("https://api.json2video.com/v2/account", {
+      headers: { Authorization: "Bearer " + key, "content-type": "application/json" },
+    });
+    if (!ar.ok) return null;
+    const aj = await ar.json().catch(function () { return {}; });
+    const bal = aj.credits != null ? aj.credits : (aj.balance != null ? aj.balance : aj.remaining);
+    return (bal != null && !isNaN(bal)) ? Number(bal) : null;
+  } catch (e) { return null; }
+}
+
 async function sendCredits(chatId) {
   const checks = [
     ["Gemini", "GEMINI_KEY", "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key="],
@@ -1110,18 +1140,13 @@ async function sendCredits(chatId) {
     }
     // json2video reports live credit balance via /v2/account — show it.
     if (name === "json2video") {
-      try {
-        const ar = await fetch("https://api.json2video.com/v2/account", {
-          headers: { Authorization: "Bearer " + key, "content-type": "application/json" },
-        });
-        if (ar.ok) {
-          const aj = await ar.json().catch(function () { return {}; });
-          const bal = aj.credits != null ? aj.credits : (aj.balance != null ? aj.balance : aj.remaining);
-          out += "• " + name + ": ✅ live" + (bal != null ? " · credits left: <b>" + htmlEscape(String(bal)) + "</b>" : "") + "\n";
-        } else {
-          out += "• " + name + ": ⚠️ key rejected (HTTP " + ar.status + ")\n";
-        }
-      } catch (e) { out += "• " + name + ": ❌ unreachable\n"; }
+      const bal = await json2videoBalance(ENV, key);
+      if (bal == null) out += "• " + name + ": ❌ unreachable\n";
+      else {
+        const low = bal <= 20;
+        out += "• " + name + ": ✅ live · credits left: <b>" + htmlEscape(String(bal)) + "</b>" +
+          (low ? " 🔔 LOW — swap key with /setkey json2video &lt;new&gt;" : "") + "\n";
+      }
       continue;
     }
     let ok = false;
@@ -1269,6 +1294,16 @@ async function handleAdmin(update) {
       "✅ Promo generated.\nCode: <b>" + r.promo.code + "</b>\n" +
       r.promo.premiumDays + " days premium · first " + r.promo.maxRedemptions + " users.\n\n" +
       chan + "\n" + yt + "\n" + ytVid);
+    return;
+  }
+
+  if (cmd === "/autopost") {
+    await tgAction(ENV.ADMIN_BOT_TOKEN, chatId);
+    const r = await autoPostAi(ENV);
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId,
+      "🤖 Auto-post done.\nChannel: " + (r.toChannel ? "✅" : "❌") +
+      "\nYouTube desc: " + (r.toYt ? "✅" : "❌") +
+      "\nShort video: " + (r.toYtVideo ? "✅" : "— skipped (credits)"));
     return;
   }
 
@@ -1849,6 +1884,71 @@ async function weeklyPromo(env) {
   return { promo: promo, toChannel: toChannel, toYt: toYt, toYtVideo: toYtVideo, hasVideo: !!videoBuf };
 }
 
+/**
+ * Auto-post AI-generated content (a "tip of the day" / fun fact / prompt idea)
+ * to the Telegram channel and the channel's latest YouTube video description.
+ * Each post is paired with a generated image, and when json2video credits are
+ * available it also renders a short promo video. Used by the daily cron to keep
+ * the community active without manual effort.
+ */
+async function autoPostAi(env) {
+  const topics = [
+    "a short, punchy AI tip a beginner would love",
+    "a clever ChatGPT / Gemini prompt idea people can try today",
+    "a little-known free AI tool or trick",
+    "a one-line productivity hack using AI chat",
+    "a fun creative use of AI image generation",
+    "a myth about AI debunked in a friendly way",
+  ];
+  const topic = topics[Math.floor(Math.random() * topics.length)];
+  const msg = await adminAi(
+    "Write a friendly, upbeat Telegram channel post (2-3 sentences, 1-3 emojis) about " +
+    topic + " for our Ari AI app community. Mention Ari AI naturally. Output only the post text.", "");
+  const cleanMsg = (msg && msg.length > 5) ? msg : "✨ New AI trick just dropped — open Ari AI and try it now!";
+  const post = htmlEscape(cleanMsg) + "\n\n📲 Get the app: https://aaa-ai-bot.aaateam.workers.dev/download";
+
+  // 1) Generate a matching image and post it to the channel.
+  const imgPrompt = "Ari AI app, " + topic + ", neon purple and pink gradient, modern flat illustration, 4k, no text";
+  let toChannel = false;
+  try {
+    const imgResp = await fetch(pollinationsUrl(imgPrompt, { width: 1024, height: 1024 }));
+    if (imgResp.ok) {
+      const imgBuf = await imgResp.arrayBuffer();
+      const form = new FormData();
+      form.append("chat_id", String(env.CHANNEL_ID || DEFAULT_CHANNEL_ID));
+      form.append("caption", post);
+      form.append("photo", new Blob([imgBuf], { type: "image/png" }), "aaa_tip.png");
+      const r = await fetch(TELEGRAM_API + (env.FREE_AI_BOT_TOKEN) + "/sendPhoto", { method: "POST", body: form });
+      const j = await r.json().catch(function () { return {}; });
+      toChannel = !!j.ok;
+    }
+  } catch (e) {}
+  if (!toChannel) toChannel = await postToChannel(post);
+
+  // 2) When json2video credits remain, render a short promo video and post it too.
+  let toYtVideo = false;
+  try {
+    const j2vKey = await providerKey(env, "json2video", "JSON2VIDEO_KEY");
+    const bal = await json2videoBalance(env, j2vKey);
+    if (bal != null && bal > 5) {
+      const vbuf = await generatePromoVideo(cleanMsg, env);
+      if (vbuf) {
+        const form = new FormData();
+        form.append("chat_id", String(env.CHANNEL_ID || DEFAULT_CHANNEL_ID));
+        form.append("caption", post);
+        form.append("video", new Blob([vbuf], { type: "video/mp4" }), "aaa_tip.mp4");
+        const r = await fetch(TELEGRAM_API + (env.FREE_AI_BOT_TOKEN) + "/sendVideo", { method: "POST", body: form });
+        const j = await r.json().catch(function () { return {}; });
+        toYtVideo = !!j.ok;
+      }
+    }
+  } catch (e) {}
+
+  // 3) Keep the channel's latest YouTube video description in sync.
+  const toYt = await postToYouTube(post, env);
+  return { toChannel: toChannel, toYt: toYt, toYtVideo: toYtVideo };
+}
+
 function json(obj, status) {
   return new Response(JSON.stringify(obj), {
     status: status || 200,
@@ -2103,10 +2203,18 @@ async function handle(request, env) {
       if (denied) return denied;
       return json({ ok: true, result: await cleanup(env) });
     }
-    if (request.method === "GET" && url.pathname === "/api/ask") {
-      const q = url.searchParams.get("q") || "";
-      const provider = url.searchParams.get("provider") || "gemini";
-      const userKey = url.searchParams.get("key") || null;
+    if ((request.method === "GET" || request.method === "POST") && url.pathname === "/api/ask") {
+      let q = "", provider = "gemini", userKey = null;
+      if (request.method === "POST") {
+        const body = await request.json().catch(function () { return {}; });
+        q = body.q || "";
+        provider = body.provider || "gemini";
+        userKey = body.key || null;
+      } else {
+        q = url.searchParams.get("q") || "";
+        provider = url.searchParams.get("provider") || "gemini";
+        userKey = url.searchParams.get("key") || null;
+      }
       if (!q) return json({ ok: false, error: "missing q" }, 400);
       const text = await askAi(q, provider, userKey);
       return json({ ok: true, provider: provider, text: text });
@@ -2245,6 +2353,17 @@ export async function scheduled(controller, env) {
       await tgSend(env.ADMIN_BOT_TOKEN, adminId,
         "🌅 <b>Daily Report</b>\n" + htmlEscape(report) +
         "\n\n<code>" + htmlEscape(statsBlock(stats)) + "</code>");
+      // Proactively warn the owner if the video-AI (json2video) credits are low
+      // so a fresh key can be swapped before video generation breaks.
+      try {
+        const j2vKey = await providerKey(env, "json2video", "JSON2VIDEO_KEY");
+        const bal = await json2videoBalance(env, j2vKey);
+        if (bal != null && bal <= 20) {
+          await tgSend(env.ADMIN_BOT_TOKEN, adminId,
+            "🔔 <b>json2video credits LOW</b>: " + bal + " left.\n" +
+            "Swap a new key now: /setkey json2video &lt;new_key&gt;");
+        }
+      } catch (e) {}
       // Cache the latest report + stats so the website can show them live.
       await env.AAA_KV.put("daily_report", report, { expirationTtl: 60 * 60 * 48 });
       await env.AAA_KV.put("live_stats", JSON.stringify(stats), { expirationTtl: 60 * 60 * 48 });
@@ -2258,6 +2377,23 @@ export async function scheduled(controller, env) {
     if (Date.now() - last >= weekMs) {
       await weeklyPromo(env);
       await env.AAA_KV.put("promo_last_run", String(Date.now()));
+    }
+  } catch (e) {}
+
+  // Auto-post AI-generated content to the Telegram channel + YouTube on a random
+  // cadence (roughly every other day) so the community stays alive without manual work.
+  try {
+    const last = parseInt((await env.AAA_KV.get("autopost_last_run")) || "0", 10) || 0;
+    const twoDays = 2 * 24 * 3600 * 1000;
+    // Random trigger: every ~2 days OR a 35% daily dice roll.
+    if (Date.now() - last >= twoDays || Math.random() < 0.35) {
+      const r = await autoPostAi(env);
+      await env.AAA_KV.put("autopost_last_run", String(Date.now()));
+      if (env.ADMIN_CHAT_ID && env.ADMIN_BOT_TOKEN) {
+        await tgSend(env.ADMIN_BOT_TOKEN, String(env.ADMIN_CHAT_ID),
+          "🤖 Auto-posted AI content → channel: " + (r.toChannel ? "✅" : "❌") +
+          " · YouTube: " + (r.toYt ? "✅" : "❌ (no video connected)"));
+      }
     }
   } catch (e) {}
 }

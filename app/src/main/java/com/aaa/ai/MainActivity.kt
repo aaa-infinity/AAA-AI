@@ -12,13 +12,18 @@ import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.aaa.ai.data.AdMobManager
+import com.aaa.ai.data.AppSettings
 import com.aaa.ai.data.CleanupManager
+import com.aaa.ai.data.DailyRewards
+import com.aaa.ai.data.NotificationHelper
 import com.aaa.ai.ui.AaaAiApp
 import com.aaa.ai.ui.MainViewModelFactory
 import com.aaa.ai.ui.theme.ThemeState
 import com.aaa.ai.ui.theme.aaaDarkColorScheme
 import com.aaa.ai.ui.theme.aaaLightColorScheme
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 
 class MainActivity : ComponentActivity() {
 
@@ -30,6 +35,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         AdMobManager.initialize(applicationContext)
         CleanupManager.runStartupCleanup(applicationContext)
+        // Remind the user to claim their daily reward if notifications are enabled.
+        lifecycleScope.launch {
+            val enabled = com.aaa.ai.data.AppSettings.notificationsEnabled(applicationContext).first()
+            if (enabled && com.aaa.ai.data.DailyRewards.state(applicationContext).first().claimedToday.not()) {
+                delay(1500)
+                com.aaa.ai.data.NotificationHelper.notifyReward(applicationContext)
+            }
+        }
         setContent {
             val dark by ThemeState.isDark(applicationContext)
                 .collectAsStateWithLifecycle(initialValue = false)

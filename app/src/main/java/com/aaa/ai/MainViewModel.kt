@@ -6,6 +6,7 @@ import com.aaa.ai.data.ApiCost
 import com.aaa.ai.data.ApiEndpoint
 import com.aaa.ai.data.ApiRepository
 import com.aaa.ai.data.AnalyticsLogger
+import com.aaa.ai.data.DailyRewards
 import com.aaa.ai.data.FirestoreBackend
 import com.aaa.ai.data.PointsApi
 import com.aaa.ai.data.PointsManager
@@ -17,11 +18,13 @@ import com.aaa.ai.data.model.ParsedResult
 import com.aaa.ai.data.PointsTransaction
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -39,6 +42,11 @@ class MainViewModel(
     private val repository: ApiRepository,
     val appContext: android.content.Context
 ) : ViewModel() {
+
+    init {
+        // Seed the daily-reward streak state so the UI can show it immediately.
+        viewModelScope.launch { _dailyReward.value = DailyRewards.state(appContext).first() }
+    }
 
     /** Active user id (null when signed out). Drives backend routing. */
     private val _userId = MutableStateFlow<String?>(null)
@@ -105,6 +113,12 @@ class MainViewModel(
     private val _isPremium = MutableStateFlow(false)
     val isPremium: StateFlow<Boolean> = _isPremium
 
+    // --- Daily reward streak state ---
+    private val _dailyReward = MutableStateFlow(
+        DailyRewards.Claim(points = 200, streak = 0, claimedToday = false)
+    )
+    val dailyRewardState: StateFlow<DailyRewards.Claim> = _dailyReward
+
     /** Refresh premium status from the Worker for the given user id. */
     fun checkPremium(uid: String?) {
         val id = uid ?: return
@@ -133,17 +147,21 @@ class MainViewModel(
 
     fun rewardForAd() {
         viewModelScope.launch {
+            // Daily streak bonus: reward grows the more consecutive days the user returns.
+            val pts = com.aaa.ai.data.DailyRewards.claim(appContext)
             val uid = _userId.value
             if (uid != null) {
-                val bal = backend.addPoints(uid, REWARD_PER_AD, "ad")
+                val bal = backend.addPoints(uid, pts, "ad")
                 if (bal != null) _serverPoints.value = bal
             } else {
-                pointsManager.addPoints(REWARD_PER_AD, "ad")
+                pointsManager.addPoints(pts, "ad")
             }
-            UserProfile.addLifetime(appContext, REWARD_PER_AD.toLong())
+            UserProfile.addLifetime(appContext, pts.toLong())
             AnalyticsLogger.logAdWatched(appContext)
-            AnalyticsLogger.logPointsEarned(REWARD_PER_AD, "ad")
-            _snackbar.send("+200 Points added!")
+            AnalyticsLogger.logPointsEarned(pts, "ad")
+            _snackbar.send("+$pts Points added! 🔥")
+            _dailyReward.value = DailyRewards.state(appContext)
+                .first()
         }
     }
 

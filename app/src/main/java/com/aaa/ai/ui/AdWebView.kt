@@ -13,8 +13,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -25,19 +31,27 @@ import androidx.compose.ui.viewinterop.AndroidView
  * Compliant, NON-TRAPPING full-screen in-app browser WebView.
  *
  * Behaviour (per spec):
- *  - Normal http(s) links navigate naturally inside the WebView (return false).
- *  - Custom platform intents (intent://, market://, play.google.com, whatsapp://, etc.)
- *    are routed safely to the system via an implicit Intent so the WebView never
- *    crashes or traps the user inside.
- *  - A prominent red "X" button (top corner) dismisses the view, resets the page to
- *    about:blank to kill heavy scripts, and invokes [onClose].
+ *  - Only https:// navigation is allowed inside the WebView (return false).
+ *  - Custom platform intents (http://, market://, etc.) are routed safely to the
+ *    system via an implicit Intent so the WebView never crashes or traps the user.
+ *  - A prominent red "X" button dismisses the view. To prevent accidental closes
+ *    (and ensure the ad is actually viewed), the close button stays locked for
+ *    [minSeconds] and shows a live countdown before crediting the reward.
  */
 @Composable
 fun AdWebView(
     adUrl: String,
     onClose: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    minSeconds: Int = 5
 ) {
+    var remaining by remember { mutableStateOf(minSeconds) }
+    LaunchedEffect(Unit) {
+        while (remaining > 0) {
+            kotlinx.coroutines.delay(1000)
+            remaining -= 1
+        }
+    }
     Box(modifier = modifier.fillMaxSize()) {
         AndroidView(
             factory = { context: Context ->
@@ -58,12 +72,9 @@ fun AdWebView(
                         ): Boolean {
                             val url = request.url.toString()
                             // Security: only allow HTTPS navigation inside the WebView.
-                            // Block http://, file://, javascript:, intent:, etc. so the
-                            // ad surface can never reach local files or trap the user.
                             if (url.startsWith("https://")) {
                                 return false
                             }
-                            // Custom platform intents (https only) -> hand off to the system safely.
                             if (url.startsWith("http://")) {
                                 routeExternal(context, url)
                             }
@@ -76,15 +87,28 @@ fun AdWebView(
             modifier = Modifier.fillMaxSize()
         )
 
+        // Close button — locked until the minimum view time elapses.
         Button(
             onClick = onClose,
+            enabled = remaining == 0,
             colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(16.dp)
                 .size(48.dp)
         ) {
-            Text("X", color = Color.White)
+            Text(if (remaining == 0) "X" else "$remaining", color = Color.White)
+        }
+
+        if (remaining > 0) {
+            CircularProgressIndicator(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 72.dp, end = 32.dp)
+                    .size(16.dp),
+                color = Color.Red,
+                strokeWidth = 2.dp
+            )
         }
     }
 }
