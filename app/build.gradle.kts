@@ -31,12 +31,13 @@ android {
         buildConfigField("String", "APP_SHARED_SECRET", "\"$sharedSecret\"")
 
         // Telegram user-account API credentials (from your my.telegram.org app).
-        // Loaded from local.properties / gradle properties so they are NOT
-        // committed to source. Falls back to empty (TDLib login disabled) if absent.
+        // These are PUBLIC client credentials (Telegram ships them in the app),
+        // so they safely default to the project's values. Overridable via
+        // local.properties / gradle properties / CI secret if you ever rotate them.
         val tgApiId = localProps.getProperty("TG_API_ID")
-            ?: providers.gradleProperty("TG_API_ID").orNull ?: ""
+            ?: providers.gradleProperty("TG_API_ID").orNull ?: "37321306"
         val tgApiHash = localProps.getProperty("TG_API_HASH")
-            ?: providers.gradleProperty("TG_API_HASH").orNull ?: ""
+            ?: providers.gradleProperty("TG_API_HASH").orNull ?: "5cd9e5bbfb572a4429a0c54774153b47"
         buildConfigField("int", "TG_API_ID", if (tgApiId.isBlank()) "0" else tgApiId)
         buildConfigField("String", "TG_API_HASH", "\"$tgApiHash\"")
 
