@@ -59,7 +59,7 @@ end; $$;
 let ENV = {};
 
 /** Branded, responsive, animated download landing page with live data. */
-function downloadPage(available, versionName, sizeLabel, stats, changelog) {
+function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
   stats = stats || {};
   const ver = versionName ? "v" + versionName : "";
   const cta = available
@@ -131,6 +131,15 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog) {
     '.nav a.dl{background:linear-gradient(135deg,#7c4dff,#ff4d9d);padding:9px 18px;border-radius:50px;font-weight:700;font-size:.9rem}' +
     '.safe{display:inline-flex;align-items:center;gap:6px;margin-top:14px;font-size:.82rem;color:#9be3a8;' +
     'background:rgba(40,180,99,.12);border:1px solid rgba(40,180,99,.35);padding:5px 14px;border-radius:50px}' +
+    '.qr{display:inline-block;margin-top:22px;padding:10px;background:#fff;border-radius:20px;box-shadow:0 16px 40px rgba(0,0,0,.4);transition:transform .15s}' +
+    '.qr:hover{transform:translateY(-3px)}' +
+    '.qrlabel{margin-top:8px;font-size:.8rem;color:#9d9daf}' +
+    '.faq{max-width:680px;margin:0 auto;text-align:left}' +
+    '.faq details{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);' +
+    'border-radius:14px;padding:14px 18px;margin-bottom:10px}' +
+    '.faq summary{cursor:pointer;font-weight:700;color:#eef}' +
+    '.faq p{color:#a6a6b8;font-size:.9rem;margin-top:8px}' +
+    'footer a{color:#9d9daf;text-decoration:underline;margin:0 6px}' +
     '/* hero */' +
     '.hero{position:relative;overflow:hidden;text-align:center;padding:72px 20px 60px}' +
     '.hero::before{content:"";position:absolute;inset:-40% -20% auto -20%;height:520px;z-index:-1;' +
@@ -201,6 +210,8 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog) {
     '<div class="safe">✓ Safe APK &middot; SHA-checked &middot; auto-updates</div>' +
     '<div class="badges"><span class="badge">100% Free</span><span class="badge">No ads paywall</span>' +
     '<span class="badge">Telegram login</span><span class="badge">Daily rewards</span></div>' +
+    (qr ? '<a class="qr" href="/app.apk"><img src="' + qr + '" width="148" height="148" alt="Scan to install"></a>' +
+      '<div class="qrlabel">Scan with your phone camera to install</div>' : '') +
     '<div class="stats">' + statItems + '</div>' +
     '</div></header>' +
     '<div class="divider"></div>' +
@@ -215,6 +226,20 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog) {
     '<div class="steps">' + steps + '</div></div></section>' +
     changeBlock +
     '<div class="divider"></div>' +
+    // install help / FAQ
+    '<section><div class="wrap"><h2 class="reveal">Having trouble installing?</h2>' +
+    '<p class="lead reveal">Quick fixes for the most common cases.</p>' +
+    '<div class="faq">' +
+    '<details class="reveal"><summary>"App not installed"</summary>' +
+    '<p>If a previous version is on your phone, uninstall it first — a different signing key blocks the upgrade. Then retry.</p></details>' +
+    '<details class="reveal"><summary>Blocked by Play Protect</summary>' +
+    '<p>Google may warn about non-Play apps. Tap <b>Install anyway</b> — our APK is checksum-verified and auto-updating.</p></details>' +
+    '<details class="reveal"><summary>"Install unknown apps" blocked</summary>' +
+    '<p>On Samsung: Settings &rarr; Apps &rarr; (your browser) &rarr; Install unknown apps &rarr; enable. Then open the download again.</p></details>' +
+    '<details class="reveal"><summary>Scan to install</summary>' +
+    '<p>Use the QR code in the hero to open the download directly on your phone — no cable needed.</p></details>' +
+    '</div></div></section>' +
+    '<div class="divider"></div>' +
     // telegram
     '<section><div class="wrap"><h2 class="reveal">Or use our Telegram bots</h2>' +
     '<p class="lead reveal">Chat with AI right inside Telegram.</p>' +
@@ -224,7 +249,10 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog) {
     '</div></div></section>' +
     // footer
     '<footer>&copy; ' + new Date().getFullYear() + ' AAA-AI &middot; Made for creators.<br>' +
-    'By installing you agree to allow updates from this source.</footer>' +
+    'By installing you agree to allow updates from this source.<br>' +
+    '<a href="https://github.com/aaa-infinity/AAA-AI">GitHub</a> &middot; ' +
+    '<a href="https://t.me/AAA_Free_Ai_bot">Telegram</a> &middot; ' +
+    '<a href="/app.apk">Download APK</a></footer>' +
     // dynamic behaviour: scroll reveal + animated counters
     '<script>' +
     '(function(){' +
@@ -254,6 +282,19 @@ async function storeAsset(env, key, data, contentType) {
 async function getAsset(env, key) {
   if (!env.aaa_assets) return null;
   return await env.aaa_assets.get(key);
+}
+
+/** Build a QR-code data URI for a URL (best-effort; returns "" on failure). */
+async function makeQr(target) {
+  try {
+    const u = "https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=8&data=" +
+      encodeURIComponent(target);
+    const r = await fetch(u, { cf: { cacheTtl: 86400 } });
+    if (!r.ok) return "";
+    const buf = await r.arrayBuffer();
+    const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+    return "data:image/png;base64," + b64;
+  } catch (e) { return ""; }
 }
 
 // Scheduled cleanup: drop history older than 30 days, prune expired R2 objects.
@@ -1763,7 +1804,8 @@ if (request.method === "GET" && url.pathname === "/api/search") {
       const cached = await ENV.AAA_KV.get("live_stats");
       if (cached) { try { stats = JSON.parse(cached); } catch (e) {} }
       if (!stats) stats = await gatherStats(env);
-      return new Response(downloadPage(available, versionName, sizeLabel, stats, changelog), {
+      const qr = await makeQr(url.origin + "/app.apk");
+      return new Response(downloadPage(available, versionName, sizeLabel, stats, changelog, qr), {
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=120" },
       });
     }
