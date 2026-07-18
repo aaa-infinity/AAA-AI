@@ -27,6 +27,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      BUILD_TDLIB: "true"
     steps:
       - uses: actions/checkout@v4
 
@@ -38,6 +40,12 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK (for optional TDLib build)
+        if: ${{ env.BUILD_TDLIB == 'true' }}
+        run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;25.1.8937393" || true
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
 
       - name: Decode signing keystore
         # Store a base64 of your release keystore as a repo secret: SIGNING_KEY
@@ -61,6 +69,32 @@ jobs:
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
+
+      # Optional: build the TDLib native AAR from source so the "Telegram User
+      # Account" login feature is enabled. This is heavy (NDK + cmake) and may
+      # take ~15 min; if it fails for any reason we skip it and the app still
+      # builds (the user-login button is simply hidden). The resulting AAR is
+      # placed at app/libs/tdlib.aar which the app build picks up automatically.
+      - name: Set up Android NDK
+        if: ${{ env.BUILD_TDLIB == 'true' }}
+        run: echo "ndk.dir=$ANDROID_HOME/ndk/25.1.8937393" >> local.properties
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+
+      - name: Build TDLib AAR from source (optional)
+        if: ${{ env.BUILD_TDLIB == 'true' }}
+        continue-on-error: true
+        run: |
+          git clone --depth 1 --branch v1.8.25 https://github.com/tdlib/tdlib.git /tmp/tdlib
+          cd /tmp/tdlib/example/android
+          # Point the sample at our local.properties sdk/ndk
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          echo "ndk.dir=$ANDROID_HOME/ndk/25.1.8937393" >> local.properties
+          ../gradlew assembleRelease || ../gradlew assembleDebug
+          AAR=$(find . -name "tdlib*.aar" | head -1)
+          if [ -n "$AAR" ]; then mkdir -p ${{ github.workspace }}/app/libs && cp "$AAR" ${{ github.workspace }}/app/libs/tdlib.aar && echo "TDLIB AAR ready"; fi
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
 
       - name: Build signed release APK
         run: ./gradlew :app:assembleRelease
