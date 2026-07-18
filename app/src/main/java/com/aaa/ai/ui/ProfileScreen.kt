@@ -212,7 +212,7 @@ fun ProfileScreen(
                     }
                     if (showPromoGuide) {
                         AsyncImage(
-                            model = "https://aaa-ai-bot.aaateam.workers.dev/asset/public/promo_guide.png",
+                            model = "https://aaa-ai-bot.aaateam.workers.dev/api/asset/public/promo_guide.png",
                             contentDescription = "Promo code guide",
                             contentScale = ContentScale.Fit,
                             modifier = Modifier.fillMaxWidth().padding(top = 12.dp).clip(RoundedCornerShape(12.dp))

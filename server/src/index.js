@@ -114,6 +114,7 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '<meta name="description" content="AAA-AI — unlimited free AI chat, image generation, downloaders and creative studio for Android.">' +
     '<meta property="og:title" content="AAA-AI — Free AI Super App">' +
     '<meta property="og:description" content="Unlimited free AI chat, image generation & downloaders. Download for Android.">' +
+    '<meta property="og:image" content="/api/asset/public/logo_aaa.png">' +
     '<meta property="og:type" content="website">' +
     '<title>AAA-AI — Free AI Super App for Android</title>' +
     '<style>' +
@@ -198,11 +199,11 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '@media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;transition:none}.hero::before{animation:none}}' +
     '</style></head><body>' +
     '<nav class="nav"><div class="wrap"><div class="brand">' +
-    '<img src="/asset/public/logo_aaa.png" width="30" height="30" alt="">AAA-AI</div>' +
+    '<img src="/api/asset/public/logo_aaa.png" width="30" height="30" alt="">AAA-AI</div>' +
     '<a class="dl" href="/app.apk">Get the app</a></div></nav>' +
     // hero
     '<header class="hero"><div class="wrap">' +
-    '<img class="logo" src="/asset/public/logo_aaa.png" width="104" height="104" alt="AAA-AI logo">' +
+    '<img class="logo" src="/api/asset/public/logo_aaa.png" width="104" height="104" alt="AAA-AI logo">' +
     '<h1>AAA-AI <span class="grad">Super App</span></h1>' +
     '<p class="sub">Unlimited free AI chat, image generation, downloaders &amp; a full creative studio — all in one beautiful Android app.</p>' +
     cta +
