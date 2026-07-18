@@ -3121,7 +3121,7 @@ if (request.method === "GET" && url.pathname === "/api/search") {
       // Serve the APK from the GitHub Release (authoritative, always the latest
       // build) via a 302 redirect. This avoids any stale R2 object/cache and
       // guarantees users get the correct universal APK.
-      const releaseUrl = "https://github.com/aaa-infinity/AAA-AI/releases/download/v2.2.6/app-release.apk";
+      const releaseUrl = "https://github.com/aaa-infinity/AAA-AI/releases/download/v2.2.7/app-release.apk";
       // Increment a live download counter (best-effort, never block).
       env.AAA_KV?.put("app_downloads", String((parseInt(await env.AAA_KV?.get("app_downloads") || "0", 10) || 0) + 1), { expirationTtl: 60 * 24 * 3600 }).catch(function () {});
       return Response.redirect(releaseUrl, 302);
