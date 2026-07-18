@@ -7,12 +7,15 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.material3.Button
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -71,6 +74,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aaa.ai.AuthViewModel
 import com.aaa.ai.MainViewModel
+import com.aaa.ai.R
 import com.aaa.ai.data.ApiCategory
 import com.aaa.ai.data.ApiEndpoint
 import com.aaa.ai.data.EndpointCatalog
@@ -387,15 +391,23 @@ private fun HomeScreen(
                     )
                     .padding(20.dp)
             ) {
-                Column {
-                    Text("AAA-AI", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
-                    Text("Unlimited free AI · downloaders · studio", color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f))
-                    androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
-                    Surface(color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.18f), shape = RoundedCornerShape(50)) {
-                        TextButton(onClick = onEarn) {
-                            Icon(Icons.Filled.Star, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
-                            Text("  Earn +200 pts", color = MaterialTheme.colorScheme.onPrimary)
-                        }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Image(
+                        painter = painterResource(id = R.drawable.logo_aaa),
+                        contentDescription = "AAA-AI",
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text("AAA-AI", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
+                        Text("Unlimited free AI · downloaders · studio", color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f))
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Surface(color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.18f), shape = RoundedCornerShape(50)) {
+                    TextButton(onClick = onEarn) {
+                        Icon(Icons.Filled.Star, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
+                        Text("  Earn +200 pts", color = MaterialTheme.colorScheme.onPrimary)
                     }
                 }
             }

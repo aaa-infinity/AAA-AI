@@ -123,6 +123,14 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog) {
     'color:#f2f2f7;line-height:1.55;-webkit-font-smoothing:antialiased}' +
     '.wrap{max-width:960px;margin:0 auto;padding:0 20px}' +
     'a{color:inherit;text-decoration:none}' +
+    '.nav{position:sticky;top:0;z-index:20;backdrop-filter:blur(12px);' +
+    'background:rgba(8,8,15,.7);border-bottom:1px solid rgba(255,255,255,.06)}' +
+    '.nav .wrap{display:flex;align-items:center;justify-content:space-between;padding:12px 20px}' +
+    '.brand{display:flex;align-items:center;gap:10px;font-weight:800}' +
+    '.brand img{width:30px;height:30px;border-radius:8px}' +
+    '.nav a.dl{background:linear-gradient(135deg,#7c4dff,#ff4d9d);padding:9px 18px;border-radius:50px;font-weight:700;font-size:.9rem}' +
+    '.safe{display:inline-flex;align-items:center;gap:6px;margin-top:14px;font-size:.82rem;color:#9be3a8;' +
+    'background:rgba(40,180,99,.12);border:1px solid rgba(40,180,99,.35);padding:5px 14px;border-radius:50px}' +
     '/* hero */' +
     '.hero{position:relative;overflow:hidden;text-align:center;padding:72px 20px 60px}' +
     '.hero::before{content:"";position:absolute;inset:-40% -20% auto -20%;height:520px;z-index:-1;' +
@@ -130,9 +138,8 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog) {
     'radial-gradient(circle at 70% 40%,rgba(255,77,157,.4),transparent 55%);' +
     'filter:blur(40px);animation:float 12s ease-in-out infinite}' +
     '@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(24px)}}' +
-    '.logo{width:104px;height:104px;border-radius:28px;margin:0 auto 22px;display:flex;' +
-    'align-items:center;justify-content:center;font-size:42px;font-weight:800;letter-spacing:1px;' +
-    'background:linear-gradient(135deg,#7c4dff,#5b6bff,#ff4d9d);box-shadow:0 20px 50px rgba(124,77,255,.35)}' +
+    '.logo{width:104px;height:104px;border-radius:28px;margin:0 auto 22px;display:block;' +
+    'object-fit:cover;box-shadow:0 20px 50px rgba(124,77,255,.35)}' +
     'h1{font-size:clamp(2rem,6vw,3.2rem);font-weight:800;line-height:1.1;margin-bottom:14px}' +
     '.grad{background:linear-gradient(135deg,#a98bff,#ff8fc0);-webkit-background-clip:text;background-clip:text;color:transparent}' +
     '.sub{color:#b9b9c9;font-size:clamp(1rem,2.6vw,1.2rem);max-width:560px;margin:0 auto 28px}' +
@@ -181,13 +188,17 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog) {
     '.reveal.in{opacity:1;transform:none}' +
     '@media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;transition:none}.hero::before{animation:none}}' +
     '</style></head><body>' +
+    '<nav class="nav"><div class="wrap"><div class="brand">' +
+    '<img src="/asset/public/logo_aaa.png" width="30" height="30" alt="">AAA-AI</div>' +
+    '<a class="dl" href="/app.apk">Get the app</a></div></nav>' +
     // hero
     '<header class="hero"><div class="wrap">' +
-    '<div class="logo">AI</div>' +
+    '<img class="logo" src="/asset/public/logo_aaa.png" width="104" height="104" alt="AAA-AI logo">' +
     '<h1>AAA-AI <span class="grad">Super App</span></h1>' +
     '<p class="sub">Unlimited free AI chat, image generation, downloaders &amp; a full creative studio — all in one beautiful Android app.</p>' +
     cta +
     '<div class="meta">Android 7.0+ &middot; ' + (ver || 'Free forever') + (available ? '' : ' &middot; releasing soon') + '</div>' +
+    '<div class="safe">✓ Safe APK &middot; SHA-checked &middot; auto-updates</div>' +
     '<div class="badges"><span class="badge">100% Free</span><span class="badge">No ads paywall</span>' +
     '<span class="badge">Telegram login</span><span class="badge">Daily rewards</span></div>' +
     '<div class="stats">' + statItems + '</div>' +

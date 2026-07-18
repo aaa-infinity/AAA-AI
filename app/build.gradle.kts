@@ -24,8 +24,9 @@ android {
             useSupportLibrary = true
         }
         ndk {
-            // Include all ABIs so the installed app (with ML/native libs) lands in 100-300MB.
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            // Phones/tablets are ARM-only. Dropping x86/x86_64 shrinks the APK
+            // from ~140MB to a sane size and avoids install failures on devices.
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
         }
     }
 

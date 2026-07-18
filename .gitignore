@@ -36,3 +36,4 @@ app/keystore_pass.txt
 # Local tooling state
 .wrangler/
 server/.wrangler/
+.credentials.local
