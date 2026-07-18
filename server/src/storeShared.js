@@ -220,10 +220,11 @@ function json(obj, status) { return new Response(JSON.stringify(obj), { status: 
 function storeShell(title, body, user) {
   const nav = '<nav class="nav"><div class="wrap"><div class="brand">' +
     '<a href="/download" style="color:inherit;text-decoration:none;display:flex;align-items:center;gap:10px">' +
-    '<img src="/api/asset/public/Logo.png" width="30" height="30" alt="">Ari AI</a></div>' +
+    '<img src="/api/asset/public/Logo.png" width="30" height="30" alt="">Super AI</a></div>' +
     '<div class="nav-actions"><a class="nav-fb" href="https://www.facebook.com/share/1BzWH5P2bF/" target="_blank" rel="noopener">f</a>' +
+    '<a class="dl ghost" href="/download">Get app</a>' +
     (user ? '<a class="dl" href="/store/upload">Upload app</a>' : '<a class="dl" href="/store/login">Sign in</a>') +
-    '<a class="dl" href="/store">Store</a></div></div></nav>';
+    '</div></div></nav>';
   return '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<meta name="theme-color" content="#0b0b13">' +
@@ -234,25 +235,31 @@ function storeShell(title, body, user) {
     '.nav{position:sticky;top:0;z-index:20;backdrop-filter:blur(12px);background:rgba(8,8,15,.7);border-bottom:1px solid rgba(255,255,255,.06)}' +
     '.nav .wrap{display:flex;align-items:center;justify-content:space-between;padding:12px 20px}' +
     '.brand{display:flex;align-items:center;gap:10px;font-weight:800}' +
+    '.brand img{width:32px;height:32px;border-radius:9px;box-shadow:0 2px 10px rgba(124,77,255,.4)}' +
     '.nav a.dl{background:linear-gradient(135deg,#7c4dff,#ff4d9d);padding:9px 18px;border-radius:50px;font-weight:700;font-size:.9rem}' +
+    '.nav a.dl.ghost{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12)}' +
     '.nav-actions{display:flex;align-items:center;gap:10px}' +
     '.nav-fb{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:rgba(59,89,152,.18);border:1px solid rgba(59,89,152,.5);color:#9db4ff;font-weight:800}' +
-    '.hero{text-align:center;padding:64px 20px 40px;background:radial-gradient(circle at 50% 0%,rgba(124,77,255,.35),transparent 60%)}' +
+    '.hero{position:relative;overflow:hidden;text-align:center;padding:72px 20px 48px;background:radial-gradient(circle at 50% 0%,rgba(124,77,255,.4),transparent 60%)}' +
+    '.hero::before{content:"";position:absolute;inset:-40% -20% auto -20%;height:420px;z-index:-1;background:radial-gradient(circle at 70% 30%,rgba(255,77,157,.32),transparent 55%);filter:blur(40px)}' +
     '.hero h1{font-size:clamp(2rem,5vw,3rem);font-weight:800}.grad{background:linear-gradient(135deg,#a98bff,#ff8fc0);-webkit-background-clip:text;background-clip:text;color:transparent}' +
     '.sub{color:#b9b9c9;max-width:560px;margin:12px auto 24px}' +
-    '.btn{display:inline-flex;align-items:center;gap:10px;padding:14px 28px;border-radius:50px;font-weight:700;background:linear-gradient(135deg,#7c4dff,#ff4d9d);color:#fff}' +
+    '.btn{display:inline-flex;align-items:center;gap:10px;padding:14px 28px;border-radius:50px;font-weight:700;background:linear-gradient(135deg,#7c4dff,#ff4d9d);color:#fff;transition:transform .15s,box-shadow .2s}' +
+    '.btn:hover{transform:translateY(-2px);box-shadow:0 14px 34px rgba(255,77,157,.35)}' +
     '.bar{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin:18px 0}' +
-    '.chip{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);padding:7px 16px;border-radius:50px;font-size:.85rem;cursor:pointer}' +
+    '.chip{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);padding:7px 16px;border-radius:50px;font-size:.85rem;cursor:pointer;transition:.15s}' +
+    '.chip:hover{border-color:rgba(124,77,255,.5)}' +
     '.chip.active{background:linear-gradient(135deg,#7c4dff,#ff4d9d);border-color:transparent}' +
     'input.search{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#fff;padding:12px 16px;border-radius:50px;min-width:280px;outline:none}' +
     '.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin-top:28px}' +
-    '.card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:18px;transition:transform .15s,border-color .2s}' +
-    '.card:hover{transform:translateY(-3px);border-color:rgba(124,77,255,.5)}' +
-    '.card img.ic{width:64px;height:64px;border-radius:16px;object-fit:cover;background:#222}' +
-    '.card h3{margin:12px 0 4px}.card p{color:#a6a6b8;font-size:.88rem;min-height:38px}' +
-    '.cat{font-size:.72rem;color:#9db4ff;text-transform:uppercase;letter-spacing:1px}' +
+    '.card{display:block;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:18px;transition:transform .15s,border-color .2s}' +
+    '.card:hover{transform:translateY(-4px);border-color:rgba(124,77,255,.5)}' +
+    '.card img.ic{width:64px;height:64px;border-radius:16px;object-fit:cover;background:#222;box-shadow:0 6px 18px rgba(124,77,255,.25)}' +
+    '.card h3{margin:12px 0 4px;font-size:1.05rem}.card p{color:#a6a6b8;font-size:.88rem;min-height:38px}' +
+    '.cat{font-size:.72rem;color:#9db4ff;text-transform:uppercase;letter-spacing:1px;font-weight:700}' +
     '.meta{color:#8a8aa0;font-size:.78rem;margin-top:8px}' +
     'section{padding:40px 0}footer{text-align:center;padding:40px 20px;color:#6f6f82;font-size:.85rem;border-top:1px solid rgba(255,255,255,.06)}' +
+    '.empty{text-align:center;padding:60px 20px;color:#9d9daf}.empty .big{font-size:3rem;margin-bottom:10px}' +
     '.detail{max-width:720px;margin:0 auto}.detail img.ic{width:96px;height:96px;border-radius:22px;object-fit:cover}' +
     '.form{max-width:620px;margin:0 auto;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:20px;padding:26px}' +
     '.form label{display:block;margin:14px 0 6px;color:#cfcfdd;font-size:.9rem}' +
@@ -260,7 +267,7 @@ function storeShell(title, body, user) {
     '.toggle{display:flex;gap:10px;margin:10px 0}.toggle button{flex:1;padding:10px;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#cfcfdd}' +
     '.toggle button.active{background:linear-gradient(135deg,#7c4dff,#ff4d9d);color:#fff;border-color:transparent}' +
     '</style></head><body>' + nav + '<div class="wrap">' + body + '</div>' +
-    '<footer>&copy; ' + new Date().getFullYear() + ' Ari AI &middot; A free Android app store.</footer></body></html>';
+    '<footer>&copy; ' + new Date().getFullYear() + ' Super AI &middot; A free Android app store.</footer></body></html>';
 }
 
 function appCard(a) {
@@ -278,14 +285,15 @@ export function storePage(list, categories, user) {
     .concat(categories.map((c) =>
       '<span class="chip ' + (list.category === c ? 'active' : '') + '" onclick="location=\'/store?category=' + encodeURIComponent(c) + '\'">' + c + '</span>'
     )).join('');
-  const body = '<header class="hero"><h1>Ari AI <span class="grad">App Store</span></h1>' +
+  const body = '<header class="hero"><h1>Super AI <span class="grad">App Store</span></h1>' +
     '<p class="sub">A free, open Android app store. Anyone can publish — browse, download, and share apps.</p>' +
     '<a class="btn" href="' + (user ? '/store/upload' : '/store/login') + '">⬆ Publish your app</a></header>' +
     '<div class="bar"><input class="search" placeholder="Search apps…" onkeydown="if(event.key===\'Enter\')location=\'/store?q=\'+encodeURIComponent(this.value)"></div>' +
     '<div class="bar">' + chips + '</div>' +
     (list.apps.length ? '<div class="grid">' + list.apps.map(appCard).join('') + '</div>'
-      : '<p style="text-align:center;color:#9d9daf;margin-top:30px">No apps yet — be the first to publish!</p>');
-  return storeShell("Ari AI App Store", body, user);
+      : '<div class="empty"><div class="big">📦</div><p>No apps yet — be the first to publish!</p>' +
+        '<a class="btn" style="margin-top:16px" href="' + (user ? '/store/upload' : '/store/login') + '">Publish an app</a></div>');
+  return storeShell("Super AI App Store", body, user);
 }
 
 export function storeDetailPage(a, user) {
@@ -301,7 +309,7 @@ export function storeDetailPage(a, user) {
     '<p style="color:#cfcfdd;margin:18px 0;line-height:1.7">' + escapeHtml(a.long_desc || a.short_desc || "") + '</p>' +
     '<div style="margin:20px 0">' + dl + '</div>' +
     '<div class="meta">⬇ ' + (a.downloads || 0) + ' downloads</div></div>';
-  return storeShell(a.name + " · Ari AI Store", body, user);
+  return storeShell(a.name + " · Super AI Store", body, user);
 }
 
 export function uploadPage(user) {
@@ -331,7 +339,7 @@ export function uploadPage(user) {
     'if(m==="link"){body.append("apk_url",fd.get("apk_url")||"");}else{var f=fd.get("apk");if(f&&f.size)body.append("apk",f);}' +
     'var r=await fetch("/api/store/apps",{method:"POST",headers:{"x-session":new URLSearchParams(location.search).get("t")||localStorage.getItem("sess")||""},body:body});' +
     'var j=await r.json();document.getElementById("msg").textContent=j.ok?"✅ Submitted! Pending admin approval.":(j.error||"Failed");});</script></div>';
-  return storeShell("Publish · Ari AI Store", body, user);
+  return storeShell("Publish · Super AI Store", body, user);
 }
 
 export function escapeHtml(s) {
@@ -351,7 +359,7 @@ export function loginPage(user, opts) {
     'data-auth-url="' + escapeHtml(verifyUrl) + '" data-request-access="write"></script></div>' +
     '<div style="margin:14px 0;color:#6f6f82">or</div>' +
     '<div style="text-align:left"><label>Sign in with a Telegram link code</label>' +
-    '<p style="color:#a6a6b8;font-size:.85rem;margin-bottom:10px">Open the Ari AI app → Settings → "Link this account", copy the 6-character code, paste it below.</p>' +
+    '<p style="color:#a6a6b8;font-size:.85rem;margin-bottom:10px">Open the Super AI app → Settings → "Link this account", copy the 6-character code, paste it below.</p>' +
     '<input id="code" placeholder="ABC123" maxlength="12" style="text-transform:uppercase;letter-spacing:2px;text-align:center">' +
     '<button class="btn" id="codeBtn" style="margin-top:14px;width:100%;justify-content:center">Verify code</button>' +
     '<p id="msg" style="margin-top:12px;color:#ff9b9b"></p></div>' +
@@ -364,7 +372,7 @@ export function loginPage(user, opts) {
     'var r=await fetch("/api/store/login",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({code:c})});' +
     'var j=await r.json();if(j.ok){saveSess(j.token);location.href="/store";}else{document.getElementById("msg").textContent=j.error||"Invalid code.";}});' +
     '</script></div>';
-  return storeShell("Sign in · Ari AI Store", body, user);
+  return storeShell("Sign in · Super AI Store", body, user);
 }
 
 

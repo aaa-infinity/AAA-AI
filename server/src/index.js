@@ -115,14 +115,14 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
   return '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<meta name="theme-color" content="#0b0b13">' +
-    '<meta name="description" content="Ari AI — unlimited free AI chat, image generation, downloaders and creative studio for Android.">' +
-    '<meta property="og:title" content="Ari AI — Free AI Super App">' +
+    '<meta name="description" content="Super AI — unlimited free AI chat, image generation, downloaders and creative studio for Android.">' +
+    '<meta property="og:title" content="Super AI — Free AI Super App">' +
     '<meta property="og:description" content="Unlimited free AI chat, image generation & downloaders. Download for Android.">' +
     '<meta property="og:image" content="/api/asset/public/Logo.png">' +
     '<meta property="og:type" content="website">' +
     '<link rel="icon" href="/api/asset/public/Logo.png" type="image/png">' +
     '<link rel="apple-touch-icon" href="/api/asset/public/Logo.png">' +
-    '<title>Ari AI — Free AI Super App for Android</title>' +
+    '<title>Super AI — Free AI Super App for Android</title>' +
     '<style>' +
     '*{box-sizing:border-box;margin:0;padding:0}:root{color-scheme:dark}' +
     'html{scroll-behavior:smooth}' +
@@ -135,6 +135,16 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '.nav .wrap{display:flex;align-items:center;justify-content:space-between;padding:12px 20px}' +
     '.brand{display:flex;align-items:center;gap:10px;font-weight:800}' +
     '.brand img{width:32px;height:32px;border-radius:9px;box-shadow:0 2px 10px rgba(124,77,255,.4)}' +
+    '.nav-links{display:flex;gap:18px;margin-left:auto;margin-right:18px}' +
+    '.nav-links a{color:#c9c9d8;font-size:.9rem;font-weight:600;transition:color .15s}' +
+    '.nav-links a:hover{color:#fff}' +
+    '@media(max-width:760px){.nav-links{display:none}}' +
+    '.sticky-cta{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:40;' +
+    'background:linear-gradient(135deg,#7c4dff,#ff4d9d);color:#fff;font-weight:800;' +
+    'padding:14px 26px;border-radius:50px;box-shadow:0 12px 30px rgba(255,77,157,.4);' +
+    'text-decoration:none;font-size:.95rem;opacity:0;pointer-events:none;transition:opacity .3s,transform .3s}' +
+    '.sticky-cta.show{opacity:1;pointer-events:auto}' +
+    '@media(max-width:560px){.sticky-cta{bottom:12px;padding:12px 20px;font-size:.9rem}}' +
     '.nav a.dl{background:linear-gradient(135deg,#7c4dff,#ff4d9d);padding:9px 18px;border-radius:50px;font-weight:700;font-size:.9rem}' +
     '.nav-actions{display:flex;align-items:center;gap:10px}' +
     '.nav-fb{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;' +
@@ -184,8 +194,8 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     'radial-gradient(circle at 70% 40%,rgba(255,77,157,.4),transparent 55%);' +
     'filter:blur(40px);animation:float 12s ease-in-out infinite}' +
     '@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(24px)}}' +
-    '.logo{width:104px;height:104px;border-radius:28px;margin:0 auto 22px;display:block;' +
-    'object-fit:cover;box-shadow:0 20px 50px rgba(124,77,255,.35)}' +
+    '.logo{width:116px;height:116px;border-radius:28px;margin:0 auto 22px;display:block;' +
+    'object-fit:cover;box-shadow:0 20px 50px rgba(124,77,255,.45);border:1px solid rgba(255,255,255,.12)}' +
     'h1{font-size:clamp(2rem,6vw,3.2rem);font-weight:800;line-height:1.1;margin-bottom:14px}' +
     '.grad{background:linear-gradient(135deg,#a98bff,#ff8fc0);-webkit-background-clip:text;background-clip:text;color:transparent}' +
     '.sub{color:#b9b9c9;font-size:clamp(1rem,2.6vw,1.2rem);max-width:560px;margin:0 auto 28px}' +
@@ -235,13 +245,20 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '@media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;transition:none}.hero::before{animation:none}}' +
     '</style></head><body>' +
     '<nav class="nav"><div class="wrap"><div class="brand">' +
-    '<img src="/api/asset/public/Logo.png" width="30" height="30" alt="">Ari AI</div>' +
+    '<img src="/api/asset/public/Logo.png" width="30" height="30" alt="Super AI">Super AI</div>' +
+    '<div class="nav-links">' +
+    '<a href="#features">Features</a>' +
+    '<a href="#store">App Store</a>' +
+    '<a href="#premium">Premium</a>' +
+    '<a href="#install">Install</a>' +
+    '</div>' +
     '<div class="nav-actions"><a class="nav-fb" href="https://www.facebook.com/share/1BzWH5P2bF/" target="_blank" rel="noopener">f</a>' +
     '<a class="dl" href="/app.apk">Get the app</a></div></div></nav>' +
+    '<a class="sticky-cta" href="/app.apk">⬇ Get Super AI Free</a>' +
     // hero
     '<header class="hero"><div class="wrap">' +
-    '<img class="logo" src="/api/asset/public/Logo.png" width="104" height="104" alt="Ari AI logo">' +
-    '<h1>Ari AI <span class="grad">Super App</span></h1>' +
+    '<img class="logo" src="/api/asset/public/Logo.png" width="104" height="104" alt="Super AI logo">' +
+    '<h1>Super AI <span class="grad">Super App</span></h1>' +
     '<p class="sub">Unlimited free AI chat, image generation, downloaders &amp; a full creative studio — all in one beautiful Android app.</p>' +
     cta +
     '<div class="meta">Android 7.0+ &middot; ' + (ver || 'Free forever') + (available ? '' : ' &middot; releasing soon') + '</div>' +
@@ -260,7 +277,7 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '<div class="divider"></div>' +
     // premium
     '<section><div class="wrap"><div class="premium reveal">' +
-    '<span class="ptag">✨ Ari AI Premium</span>' +
+    '<span class="ptag">✨ Super AI Premium</span>' +
     '<h2>Unlock the full power</h2>' +
     '<p class="lead">Faster models, HD image generation, zero limits and early access — for creators who go further.</p>' +
     '<div class="pcols">' +
@@ -269,12 +286,12 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '<div class="pcol"><h4>🚀 No limits</h4><p>Higher daily caps across chat, tools and downloads.</p></div>' +
     '<div class="pcol"><h4>🎟 Early access</h4><p>Try new features and models before everyone else.</p></div>' +
     '</div>' +
-    '<a class="pbtn" href="/app.apk">Get Ari AI Free<small>Premium unlocks inside the app</small></a>' +
+    '<a class="pbtn" href="/app.apk">Get Super AI Free<small>Premium unlocks inside the app</small></a>' +
     '</div></div></section>' +
     '<div class="divider"></div>' +
     // testimonials
     '<section><div class="wrap"><h2 class="reveal">Loved by creators</h2>' +
-    '<p class="lead reveal">Join thousands using Ari AI every day.</p>' +
+    '<p class="lead reveal">Join thousands using Super AI every day.</p>' +
     '<div class="testi">' +
     '<div class="tcard reveal"><div class="stars">★★★★★</div><p>"Best free AI app I\'ve used. Chat, images and downloads all in one place."</p><div class="who">— Ayesha R.</div></div>' +
     '<div class="tcard reveal"><div class="stars">★★★★★</div><p>"I generate art for my brand in seconds. The daily rewards keep me coming back."</p><div class="who">— Daniel K.</div></div>' +
@@ -313,13 +330,21 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '<section><div class="wrap community"><h2 class="reveal">Join the community</h2>' +
     '<p class="lead reveal">Tips, updates and giveaways — connect with us on Facebook.</p>' +
     '<a class="fb reveal" href="https://www.facebook.com/share/1BzWH5P2bF/" target="_blank" rel="noopener">' +
-    'f &nbsp; <b>Follow Ari AI on Facebook</b></a>' +
+    'f &nbsp; <b>Follow Super AI on Facebook</b></a>' +
     '<div class="reveal" style="margin-top:18px">' +
     '<a class="btn primary" style="background:linear-gradient(135deg,#1877F2,#0d5cdb)" ' +
     'href="https://www.facebook.com/sharer/sharer.php?u=' + encodeURIComponent("https://aaa-ai-bot.aaateam.workers.dev/download") +
-    '" target="_blank" rel="noopener">Share Ari AI with friends</a></div></div></section>' +
+    '" target="_blank" rel="noopener">Share Super AI with friends</a></div></div></section>' +
+    '<div class="divider"></div>' +
+    // app store
+    '<section id="store"><div class="wrap"><h2 class="reveal">Super AI App Store</h2>' +
+    '<p class="lead reveal">Publish your own apps or grab community-made tools — free, no approval paywalls.</p>' +
+    '<div class="reveal" style="text-align:center;margin-top:8px">' +
+    '<a class="btn primary" href="https://aaa-store.aaateam.workers.dev">Browse the App Store →</a>' +
+    '<p style="color:#8a8aa0;font-size:.85rem;margin-top:10px">Anyone can submit an app. Approved apps go live instantly for all users.</p>' +
+    '</div></div></section>' +
     // footer
-    '<footer>&copy; ' + new Date().getFullYear() + ' Ari AI &middot; Made for creators.<br>' +
+    '<footer>&copy; ' + new Date().getFullYear() + ' Super AI &middot; Made for creators.<br>' +
     'By installing you agree to allow updates from this source.<br>' +
     '<a href="https://t.me/AAA_Free_Ai_bot">Telegram</a> &middot; ' +
     '<a href="https://www.facebook.com/share/1BzWH5P2bF/" target="_blank" rel="noopener">Facebook</a> &middot; ' +
@@ -335,6 +360,9 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     'function count(el){var to=+el.getAttribute("data-to")||0,st=performance.now(),d=1200;' +
     'function tick(now){var p=Math.min((now-st)/d,1);var v=Math.floor(to*(1-Math.pow(1-p,3)));' +
     'el.textContent=v.toLocaleString();if(p<1)requestAnimationFrame(tick);}requestAnimationFrame(tick);}' +
+    'var cta=document.querySelector(".sticky-cta");' +
+    'if(cta){window.addEventListener("scroll",function(){' +
+    'if(window.scrollY>600)cta.classList.add("show");else cta.classList.remove("show");},{"passive":true});}' +
     '})();' +
     '</script>' +
     '</body></html>';
@@ -2386,6 +2414,59 @@ async function handle(request, env) {
       if (!q) return json({ ok: false, error: "missing q" }, 400);
       const text = await askAi(q, provider, userKey);
       return json({ ok: true, provider: provider, text: text });
+    }
+    if (request.method === "POST" && url.pathname === "/api/admin/yt-upload") {
+      const secret = request.headers.get("x-yt-secret");
+      if (secret !== (ENV.YT_UPLOAD_SECRET || "")) return json({ ok: false, error: "unauthorized" }, 401);
+      const body = await request.json().catch(function () { return {}; });
+      const title = body.title || "Super AI — Free AI Super App";
+      const description = body.description || "Super AI: one free app for chat, images, video, code and more (powered by the Ari AI engine). Get it free:\nhttps://aaa-ai-bot.aaateam.workers.dev/app.apk\nApp store: https://aaa-store.aaateam.workers.dev";
+      let videoBuf = null;
+      if (body.key) {
+        const obj = ENV.aaa_assets ? await ENV.aaa_assets.get(body.key) : null;
+        if (!obj) return json({ ok: false, error: "video not found at " + body.key }, 404);
+        videoBuf = await obj.arrayBuffer();
+      } else if (body.b64) {
+        const bin = atob(body.b64);
+        const arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        videoBuf = arr.buffer;
+      }
+      if (!videoBuf) return json({ ok: false, error: "missing video" }, 400);
+      const ok = await uploadVideoToYouTube(videoBuf, title, description, ENV);
+      return json({ ok: ok });
+    }
+    if (request.method === "POST" && url.pathname === "/api/crashlog") {
+      let body = {};
+      try { body = await request.json(); } catch (e) {}
+      const ts = Date.now();
+      const rec = {
+        ts: ts,
+        device: body.device || {},
+        message: body.message || "",
+        stack: body.stack || "",
+        thread: body.thread || "main"
+      };
+      await ENV.AAA_KV.put("crashlog:" + ts, JSON.stringify(rec), { expirationTtl: 14 * 24 * 3600 }).catch(function () {});
+      // Keep a short index of latest crash timestamps (max 50).
+      let idx = [];
+      try { idx = JSON.parse(await ENV.AAA_KV.get("crashlog:index") || "[]"); } catch (e) {}
+      idx.unshift(ts);
+      idx = idx.slice(0, 50);
+      await ENV.AAA_KV.put("crashlog:index", JSON.stringify(idx)).catch(function () {});
+      return json({ ok: true });
+    }
+    if (request.method === "GET" && url.pathname === "/api/crashlog") {
+      const denied = requireSecret(request, ENV);
+      if (denied) return denied;
+      let idx = [];
+      try { idx = JSON.parse(await ENV.AAA_KV.get("crashlog:index") || "[]"); } catch (e) {}
+      const recs = [];
+      for (const ts of idx.slice(0, 20)) {
+        const r = await ENV.AAA_KV.get("crashlog:" + ts);
+        if (r) recs.push(JSON.parse(r));
+      }
+      return json({ ok: true, crashes: recs });
     }
     if (request.method === "POST" && url.pathname === "/api/submit-key") {
       const denied = requireSecret(request, ENV);
