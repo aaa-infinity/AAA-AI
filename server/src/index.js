@@ -3118,21 +3118,13 @@ if (request.method === "GET" && url.pathname === "/api/search") {
     }
     // Public APK download (streamed from R2). Returns 404 until the APK is uploaded.
     if (request.method === "GET" && (url.pathname === "/app.apk" || url.pathname === "/download/app.apk")) {
-      const obj = env.aaa_assets ? await env.aaa_assets.get(APK_KEY) : null;
-      if (!obj) {
-        return new Response("The Super AI app is coming soon. Check back shortly!", {
-          status: 404, headers: { "content-type": "text/plain" },
-        });
-      }
-      // Increment a live download counter (best-effort, never block the download).
+      // Serve the APK from the GitHub Release (authoritative, always the latest
+      // build) via a 302 redirect. This avoids any stale R2 object/cache and
+      // guarantees users get the correct universal APK.
+      const releaseUrl = "https://github.com/aaa-infinity/AAA-AI/releases/download/v2.2.6/app-release.apk";
+      // Increment a live download counter (best-effort, never block).
       env.AAA_KV?.put("app_downloads", String((parseInt(await env.AAA_KV?.get("app_downloads") || "0", 10) || 0) + 1), { expirationTtl: 60 * 24 * 3600 }).catch(function () {});
-      return new Response(obj.body, {
-        headers: {
-          "content-type": "application/vnd.android.package-archive",
-          "content-disposition": 'attachment; filename="Super AI.apk"',
-          "cache-control": "public, max-age=300",
-        },
-      });
+      return Response.redirect(releaseUrl, 302);
     }
     // Download landing page.
     if (request.method === "GET" && (url.pathname === "/download" || url.pathname === "/")) {
