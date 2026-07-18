@@ -118,7 +118,7 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '<meta name="description" content="Ari AI — unlimited free AI chat, image generation, downloaders and creative studio for Android.">' +
     '<meta property="og:title" content="Ari AI — Free AI Super App">' +
     '<meta property="og:description" content="Unlimited free AI chat, image generation & downloaders. Download for Android.">' +
-    '<meta property="og:image" content="/api/asset/public/logo_aaa.png">' +
+    '<meta property="og:image" content="/api/asset/public/Logo.png">' +
     '<meta property="og:type" content="website">' +
     '<title>Ari AI — Free AI Super App for Android</title>' +
     '<style>' +
@@ -233,12 +233,12 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '@media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;transition:none}.hero::before{animation:none}}' +
     '</style></head><body>' +
     '<nav class="nav"><div class="wrap"><div class="brand">' +
-    '<img src="/api/asset/public/logo_aaa.png" width="30" height="30" alt="">Ari AI</div>' +
+    '<img src="/api/asset/public/Logo.png" width="30" height="30" alt="">Ari AI</div>' +
     '<div class="nav-actions"><a class="nav-fb" href="https://www.facebook.com/share/1BzWH5P2bF/" target="_blank" rel="noopener">f</a>' +
     '<a class="dl" href="/app.apk">Get the app</a></div></div></nav>' +
     // hero
     '<header class="hero"><div class="wrap">' +
-    '<img class="logo" src="/api/asset/public/logo_aaa.png" width="104" height="104" alt="Ari AI logo">' +
+    '<img class="logo" src="/api/asset/public/Logo.png" width="104" height="104" alt="Ari AI logo">' +
     '<h1>Ari AI <span class="grad">Super App</span></h1>' +
     '<p class="sub">Unlimited free AI chat, image generation, downloaders &amp; a full creative studio — all in one beautiful Android app.</p>' +
     cta +

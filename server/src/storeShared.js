@@ -220,7 +220,7 @@ function json(obj, status) { return new Response(JSON.stringify(obj), { status: 
 function storeShell(title, body, user) {
   const nav = '<nav class="nav"><div class="wrap"><div class="brand">' +
     '<a href="/download" style="color:inherit;text-decoration:none;display:flex;align-items:center;gap:10px">' +
-    '<img src="/api/asset/public/logo_aaa.png" width="30" height="30" alt="">Ari AI</a></div>' +
+    '<img src="/api/asset/public/Logo.png" width="30" height="30" alt="">Ari AI</a></div>' +
     '<div class="nav-actions"><a class="nav-fb" href="https://www.facebook.com/share/1BzWH5P2bF/" target="_blank" rel="noopener">f</a>' +
     (user ? '<a class="dl" href="/store/upload">Upload app</a>' : '<a class="dl" href="/store/login">Sign in</a>') +
     '<a class="dl" href="/store">Store</a></div></div></nav>';
@@ -264,9 +264,9 @@ function storeShell(title, body, user) {
 }
 
 function appCard(a) {
-  const icon = a.icon_url || "/api/asset/public/logo_aaa.png";
+  const icon = a.icon_url || "/api/asset/public/Logo.png";
   return '<a class="card" href="/store/app/' + a.id + '">' +
-    '<img class="ic" src="' + icon + '" alt="" onerror="this.src=\'/api/asset/public/logo_aaa.png\'">' +
+    '<img class="ic" src="' + icon + '" alt="" onerror="this.src=\'/api/asset/public/Logo.png\'">' +
     '<div class="cat">' + (a.category || "Other") + '</div>' +
     '<h3>' + escapeHtml(a.name) + '</h3>' +
     '<p>' + escapeHtml(a.short_desc || "") + '</p>' +
@@ -290,12 +290,12 @@ export function storePage(list, categories, user) {
 
 export function storeDetailPage(a, user) {
   if (!a) return storeShell("Not found", "<p style='text-align:center;margin-top:60px'>App not found.</p>", user);
-  const icon = a.icon_url || "/api/asset/public/logo_aaa.png";
+  const icon = a.icon_url || "/api/asset/public/Logo.png";
   const dl = a.apk_r2_key
     ? '<a class="btn" href="/store/apks/' + a.id + '.apk">⬇ Download APK</a>'
     : (a.apk_url ? '<a class="btn" href="' + escapeHtml(a.apk_url) + '" target="_blank" rel="noopener">⬇ Get it here</a>' : '<span class="btn" style="opacity:.6">Download unavailable</span>');
   const body = '<div class="detail" style="padding-top:40px">' +
-    '<img class="ic" src="' + icon + '" alt="" onerror="this.src=\'/api/asset/public/logo_aaa.png\'">' +
+    '<img class="ic" src="' + icon + '" alt="" onerror="this.src=\'/api/asset/public/Logo.png\'">' +
     '<h1 style="margin:16px 0 4px">' + escapeHtml(a.name) + '</h1>' +
     '<div class="cat">' + (a.category || "Other") + (a.version ? ' · v' + a.version : '') + (a.min_android ? ' · Android ' + a.min_android + '+' : '') + '</div>' +
     '<p style="color:#cfcfdd;margin:18px 0;line-height:1.7">' + escapeHtml(a.long_desc || a.short_desc || "") + '</p>' +
