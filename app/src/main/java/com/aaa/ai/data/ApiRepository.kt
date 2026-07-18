@@ -2,6 +2,8 @@ package com.aaa.ai.data
 
 import android.util.Log
 import com.aaa.ai.data.model.ApiResponse
+import com.aaa.ai.data.model.ParsedResult
+import com.aaa.ai.data.ResultKind
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -54,4 +56,28 @@ class ApiRepository {
                 ApiResponse.Error(e.message ?: "Network error")
             }
         }
+
+    /**
+     * Demo fallback used when the remote endpoint is unreachable (no network or
+     * no backend). Keeps the UI fully usable/offline-friendly by returning a
+     * realistic, render-ready payload for the endpoint's result kind.
+     */
+    fun demoResponse(endpoint: ApiEndpoint, value: String): ApiResponse {
+        val kind = ApiCost.kindFor(endpoint.id)
+        val parsed: ParsedResult = when (kind) {
+            ResultKind.IMAGE -> ParsedResult.Image(
+                "https://picsum.photos/seed/${endpoint.id}/640/640"
+            )
+            ResultKind.TEXT -> ParsedResult.TextBlock(
+                title = endpoint.label,
+                body = "Demo response for “${value.ifBlank { endpoint.label }}”.\n\n" +
+                    "Connect the app to the AAA-AI backend (or a live network) to get real results."
+            )
+            else -> ParsedResult.Chat(
+                "Demo reply from ${endpoint.label}: I’m running in offline demo mode, so this is " +
+                    "sample text. Wire up the backend or network to chat for real."
+            )
+        }
+        return ApiResponse.Success(parsed = parsed, kind = kind, rawUrl = null)
+    }
 }

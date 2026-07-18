@@ -26,3 +26,13 @@ Thumbs.db
 # Signing
 *.jks
 *.keystore
+
+# Secrets (never commit real values; use .env.example as the template)
+.env
+server/.env
+**/.env.local
+app/keystore_pass.txt
+
+# Local tooling state
+.wrangler/
+server/.wrangler/

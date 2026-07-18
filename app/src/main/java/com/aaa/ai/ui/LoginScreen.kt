@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -20,12 +21,14 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -48,6 +51,8 @@ fun LoginScreen(
     val googleLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result -> authViewModel.signInWithGoogle(result.data) }
+
+    val tgState by authViewModel.tgState.collectAsState()
 
     LaunchedEffect(Unit) {
         authViewModel.events.collectLatest { event ->
@@ -105,6 +110,34 @@ fun LoginScreen(
         ) {
             Icon(Icons.Filled.Email, contentDescription = null, modifier = Modifier.size(18.dp).padding(end = 8.dp))
             Text("Continue with Google")
+        }
+
+        Button(
+            onClick = { authViewModel.startTelegramLogin() },
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            shape = RoundedCornerShape(12.dp),
+            enabled = tgState !is AuthViewModel.TelegramLoginState.Polling
+        ) {
+            if (tgState is AuthViewModel.TelegramLoginState.Polling) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp).padding(end = 8.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+                Text("Verifying… return to app")
+            } else {
+                Icon(Icons.Filled.Send, contentDescription = null, modifier = Modifier.size(18.dp).padding(end = 8.dp))
+                Text("Verify and Login via Telegram Bot")
+            }
+        }
+
+        if (tgState is AuthViewModel.TelegramLoginState.Failed) {
+            Text(
+                (tgState as AuthViewModel.TelegramLoginState.Failed).message,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 8.dp)
+            )
         }
 
         TextButton(onClick = { onToggleTheme(!isDark) }) {

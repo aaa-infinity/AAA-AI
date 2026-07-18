@@ -6,31 +6,35 @@ Server-side Telegram bot relay. Bot tokens stay here (server-side) — never in 
 - **@AAA_Free_Ai_bot** — relays a chat message to the free-AI endpoints and replies.
 - **@AAA_Login_bot** — issues a 10-minute link code the app can verify via `/api/verify`.
 
-## Deploy (you, with your Cloudflare login)
+## Automated setup / deploy
+
+One-time: `wrangler login` (uses YOUR free Cloudflare account), then copy
+`.env.example` -> `.env` and fill in tokens/keys.
+
 ```bash
 cd server
-npm install -g wrangler
-wrangler login                 # opens browser; uses YOUR account (free)
-
-# Create KV namespace, then paste its id into wrangler.toml -> kv_namespaces
-wrangler kv namespace create aaa_kv
-
-# Set secrets (do NOT commit tokens)
-wrangler secret put FREE_AI_BOT_TOKEN
-wrangler secret put LOGIN_BOT_TOKEN
-
-wrangler deploy
-
-# Register Telegram webhooks (replace URLs with your Worker URL)
-curl -F "url=https://<your-subdomain>.workers.dev/telegram/free"  https://api.telegram.org/bot<FREE_AI_BOT_TOKEN>/setWebhook
-curl -F "url=https://<your-subdomain>.workers.dev/telegram/login" https://api.telegram.org/bot<LOGIN_BOT_TOKEN>/setWebhook
+cp .env.example .env      # then edit .env
+npm run setup             # check + deploy + migrate + secrets + webhooks
 ```
 
+Individual automation scripts:
+
+| Command | What it does |
+|---------|--------------|
+| `npm run deploy`   | Syntax-check then `wrangler deploy` |
+| `npm run migrate`  | Apply D1 migrations (`--remote`) |
+| `npm run secrets`  | Push all secrets from `.env` (`scripts/setup-secrets.sh`) |
+| `npm run webhooks` | Register all 3 Telegram webhooks + command menus (`scripts/set-webhooks.sh`) |
+| `npm run release`  | Build signed APK, upload to R2, bump version in KV (`scripts/release-apk.sh`) |
+| `npm run tail`     | Live-tail Worker logs |
+
+CI: `.github/workflows/deploy-worker.yml` auto-deploys on push to `main` when
+`server/**` changes (needs repo secrets `CLOUDFLARE_API_TOKEN`,
+`CLOUDFLARE_ACCOUNT_ID`).
+
 ## Secrets
-| Name | Value |
-|------|-------|
-| `FREE_AI_BOT_TOKEN` | token for @AAA_Free_Ai_bot |
-| `LOGIN_BOT_TOKEN`  | token for @AAA_Login_bot |
+Set via `npm run secrets` (from `.env`). See `.env.example` for the full list:
+bot tokens, `ADMIN_CHAT_ID`, AI provider keys, Supabase, and `APP_SHARED_SECRET`.
 
 ## Notes
 - Free tier: Workers + KV (1 GB) is enough. No cron/queues needed (webhooks).

@@ -1,3 +1,6 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -7,18 +10,47 @@ plugins {
 
 android {
     namespace = "com.aaa.ai"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.aaa.ai"
         minSdk = 24
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        targetSdk = 35
+        versionCode = 4
+        versionName = "2.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
+        }
+        ndk {
+            // Include all ABIs so the installed app (with ML/native libs) lands in 100-300MB.
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+        }
+    }
+
+    signingConfigs {
+        create("release") {
+            // Gradle does not auto-expose custom local.properties keys as gradle
+            // properties, so load them explicitly from local.properties.
+            val localProps = Properties().apply {
+                val f = rootProject.file("local.properties")
+                if (f.exists()) FileInputStream(f).use { load(it) }
+            }
+            val storeFileProp = localProps.getProperty("RELEASE_STORE_FILE")
+                ?: providers.gradleProperty("RELEASE_STORE_FILE").orNull
+            val storePasswordProp = localProps.getProperty("RELEASE_STORE_PASSWORD")
+                ?: providers.gradleProperty("RELEASE_STORE_PASSWORD").orNull
+            val keyAliasProp = localProps.getProperty("RELEASE_KEY_ALIAS")
+                ?: providers.gradleProperty("RELEASE_KEY_ALIAS").orNull
+            val keyPasswordProp = localProps.getProperty("RELEASE_KEY_PASSWORD")
+                ?: providers.gradleProperty("RELEASE_KEY_PASSWORD").orNull
+            if (storeFileProp != null && storePasswordProp != null && keyAliasProp != null && keyPasswordProp != null) {
+                storeFile = file("${projectDir}/$storeFileProp")
+                storePassword = storePasswordProp
+                keyAlias = keyAliasProp
+                keyPassword = keyPasswordProp
+            }
         }
     }
 
@@ -30,6 +62,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
         }
         debug {
             isMinifyEnabled = false
@@ -85,6 +118,22 @@ dependencies {
     implementation(libs.firebase.firestore)
     implementation(libs.google.android.auth)
     implementation(libs.google.play.services.ads)
+
+    // Heavy media / ML / UI libs -> app install size lands in the 100-300MB range.
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    implementation(libs.mlkit.text.recognition)
+    implementation(libs.tensorflow.lite)
+    implementation(libs.tensorflow.lite.gpu)
+    implementation(libs.onnxruntime.android)
+    implementation(libs.coil.gif)
+    implementation(libs.lottie.compose)
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.exoplayer.dash)
+    implementation(libs.media3.ui)
+    implementation(libs.androidx.lifecycle.viewmodel.savedstate)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.core.splashscreen)
 
     debugImplementation(libs.androidx.ui.tooling)
     androidTestImplementation(platform(libs.androidx.compose.bom))

@@ -1,8 +1,13 @@
 package com.aaa.ai.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
@@ -23,17 +28,24 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.aaa.ai.data.ApiCategory
 import com.aaa.ai.data.ApiEndpoint
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.vector.ImageVector
+import com.aaa.ai.ui.theme.BrandAmber
+import com.aaa.ai.ui.theme.BrandPink
+import com.aaa.ai.ui.theme.BrandPurple
+import com.aaa.ai.ui.theme.BrandTeal
 
 /**
- * Polished tool card. Each endpoint lives in its own OutlinedCard with a
- * contextual icon and a filled, labeled action button (search / download / open).
+ * Polished tool card with a category-colored accent, a cost chip and a
+ * labeled action button (download / generate / run / open).
  */
 @Composable
 fun EndpointCard(
@@ -42,7 +54,7 @@ fun EndpointCard(
     onActivate: (ApiEndpoint, String) -> Unit
 ) {
     var param by remember { mutableStateOf("") }
-    val icon = iconFor(endpoint.category)
+    val (icon, color) = styleFor(endpoint.category)
     val actionLabel = when {
         endpoint.category == ApiCategory.DOWNLOADERS -> "Download"
         endpoint.category == ApiCategory.NSFW -> "View"
@@ -52,15 +64,24 @@ fun EndpointCard(
     }
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
-            androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 8.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(text = endpoint.name, style = MaterialTheme.typography.titleSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-                    Text(text = "-$cost pts", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(color.copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(20.dp))
+                }
+                Column(modifier = Modifier.weight(1f).padding(start = 10.dp)) {
+                    Text(text = endpoint.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(text = "-$cost pts", style = MaterialTheme.typography.labelSmall, color = color, fontWeight = FontWeight.Bold)
                 }
             }
 
@@ -76,7 +97,8 @@ fun EndpointCard(
                 Button(
                     onClick = { onActivate(endpoint, param) },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = color)
                 ) {
                     Icon(icon, contentDescription = null, modifier = Modifier.padding(end = 6.dp))
                     Text(actionLabel)
@@ -85,8 +107,8 @@ fun EndpointCard(
                 Button(
                     onClick = { onActivate(endpoint, "") },
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = color.copy(alpha = 0.85f))
                 ) {
                     Text(actionLabel)
                 }
@@ -95,11 +117,11 @@ fun EndpointCard(
     }
 }
 
-private fun iconFor(category: ApiCategory): ImageVector = when (category) {
-    ApiCategory.AI_CHAT -> Icons.Filled.Chat
-    ApiCategory.DOWNLOADERS -> Icons.Filled.Download
-    ApiCategory.UTILITIES -> Icons.Filled.Search
-    ApiCategory.ANIME -> Icons.Filled.Search
-    ApiCategory.VIP_GALLERIES -> Icons.Filled.Image
-    ApiCategory.NSFW -> Icons.Filled.Image
+private fun styleFor(category: ApiCategory): Pair<ImageVector, Color> = when (category) {
+    ApiCategory.AI_CHAT -> Icons.Filled.Chat to BrandPurple
+    ApiCategory.DOWNLOADERS -> Icons.Filled.Download to BrandTeal
+    ApiCategory.UTILITIES -> Icons.Filled.Search to BrandAmber
+    ApiCategory.ANIME -> Icons.Filled.Search to BrandAmber
+    ApiCategory.VIP_GALLERIES -> Icons.Filled.Image to BrandPink
+    ApiCategory.NSFW -> Icons.Filled.Image to BrandPink
 }

@@ -1,18 +1,33 @@
 name = "aaa-ai-bot"
 main = "src/index.js"
+account_id = "0990a77a6f54b26e433668dc215320fb"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
-# Free tier: Workers + KV (1 GB free). No cron / queues / D1 needed.
-# Bot tokens and the Supabase anon key are stored as SECRETS (wrangler secret put),
-# never committed to source.
+# Observability: logs + traces (free tier).
+observability = { enabled = true }
 
-# KV namespace is created with: wrangler kv namespace create aaa_kv
-# then paste the returned id into kv_namespaces below.
+# KV (link codes) — id filled by deploy.
 kv_namespaces = [
-  { binding = "AAA_KV", id = "REPLACE_WITH_KV_ID" }
+  { binding = "AAA_KV", id = "631dab0fc15e41a08abf896ae55af5a5" }
 ]
 
-# Public base URL of this Worker (set after first deploy) used to register Telegram webhooks.
-# e.g. https://aaa-ai-bot.<yoursubdomain>.workers.dev
-variables = { PUBLIC_URL = "https://aaa-ai-bot.workers.dev" }
+# D1 database (points + history). Created via: wrangler d1 create aaa_db
+d1_databases = [
+  { binding = "AAA_DB", database_name = "aaa_db", database_id = "b5be290f-6416-44ac-af92-07e76b7d33ed" }
+]
+
+# R2 bucket (S3-compatible object storage for generated images/text).
+r2_buckets = [
+  { binding = "aaa_assets", bucket_name = "aaa-assets" }
+]
+
+# Cron: daily cleanup of stale D1 history + expired R2 objects.
+[triggers]
+crons = ["0 3 * * *"]
+
+# Tail Worker (requires Workers Paid plan to connect).
+# Wire this up once you add a Workers Paid subscription:
+# tail_consumers = [
+#   { service = "aaa-ai-bot-tail" }
+# ]

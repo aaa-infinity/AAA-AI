@@ -1,0 +1,21 @@
+{
+  "name": "aaa-ai-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AAA-AI Cloudflare Worker: Telegram bots, AI providers, points, referrals, APK distribution.",
+  "type": "module",
+  "scripts": {
+    "check": "node --check src/index.js",
+    "deploy": "npm run check && wrangler deploy",
+    "dev": "wrangler dev",
+    "tail": "wrangler tail",
+    "secrets": "bash ../scripts/setup-secrets.sh",
+    "webhooks": "bash ../scripts/set-webhooks.sh",
+    "migrate": "wrangler d1 migrations apply aaa_db --remote",
+    "release": "bash ../scripts/release-apk.sh",
+    "setup": "npm run check && npm run deploy && npm run migrate && npm run secrets && npm run webhooks"
+  },
+  "devDependencies": {
+    "wrangler": "^3.80.0"
+  }
+}

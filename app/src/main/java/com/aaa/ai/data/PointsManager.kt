@@ -5,10 +5,13 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import java.util.concurrent.TimeUnit
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "user_economy")
 
@@ -47,8 +50,46 @@ class PointsManager(private val context: Context) {
     companion object {
         private val USER_POINTS_KEY = intPreferencesKey("user_points_balance")
         private val TX_KEY = stringPreferencesKey("points_transactions")
+        private val LAST_BONUS_DAY = longPreferencesKey("last_bonus_day")
+        private val STREAK_KEY = intPreferencesKey("daily_streak")
         const val DEFAULT_BALANCE = 100
         private const val MAX_TX = 200
+        private const val BASE_DAILY_BONUS = 50
+        private const val MAX_STREAK_MULTIPLIER = 7
+    }
+
+    /** Result of a daily bonus claim attempt. */
+    data class DailyBonus(val claimed: Boolean, val amount: Int, val streak: Int)
+
+    /** Current-day epoch-day number (local). */
+    private fun today(): Long = TimeUnit.MILLISECONDS.toDays(System.currentTimeMillis())
+
+    /** Reactive streak counter. */
+    val streakFlow: Flow<Int> = context.dataStore.data.map { it[STREAK_KEY] ?: 0 }
+
+    /** True if a daily bonus has not yet been claimed today. */
+    val canClaimDailyFlow: Flow<Boolean> = context.dataStore.data
+        .map { (it[LAST_BONUS_DAY] ?: -1L) < today() }
+
+    /**
+     * Claim the once-per-day login bonus. Awards [BASE_DAILY_BONUS] * min(streak, 7).
+     * Consecutive days increment the streak; a missed day resets it to 1.
+     */
+    suspend fun claimDailyBonus(): DailyBonus {
+        val day = today()
+        val prefs = context.dataStore.data.first()
+        val last = prefs[LAST_BONUS_DAY] ?: -1L
+        if (last >= day) return DailyBonus(false, 0, prefs[STREAK_KEY] ?: 0)
+        val prevStreak = prefs[STREAK_KEY] ?: 0
+        val newStreak = if (last == day - 1) prevStreak + 1 else 1
+        val amount = BASE_DAILY_BONUS * newStreak.coerceAtMost(MAX_STREAK_MULTIPLIER)
+        context.dataStore.edit { p ->
+            p[LAST_BONUS_DAY] = day
+            p[STREAK_KEY] = newStreak
+            p[USER_POINTS_KEY] = (p[USER_POINTS_KEY] ?: DEFAULT_BALANCE) + amount
+        }
+        recordTransaction(PointsTransaction("earn", amount, "daily-streak-$newStreak"))
+        return DailyBonus(true, amount, newStreak)
     }
 
     /** Reactive balance stream, defaults to 100 when nothing stored yet. */

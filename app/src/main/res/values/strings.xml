@@ -2,5 +2,7 @@
 <resources>
     <string name="app_name">AAA-AI</string>
     <!-- Base URL of the Cloudflare Worker bot server (override via Remote Config if needed) -->
-    <string name="bot_server_url">https://aaa-ai-bot.workers.dev</string>
+    <string name="bot_server_url">https://aaa-ai-bot.aaateam.workers.dev</string>
+    <!-- Public Cloudflare download/landing page for sideloading the APK -->
+    <string name="app_download_url">https://aaa-ai-bot.aaateam.workers.dev/download</string>
 </resources>

@@ -17,10 +17,6 @@ object Downloader {
         return try {
             val safeName = "${fileNameHint}_${System.currentTimeMillis()}.jpg"
                 .replace(Regex("[^a-zA-Z0-9._-]"), "_")
-            val dir = File(
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
-                "AAA-AI"
-            )
             val request = DownloadManager.Request(Uri.parse(imageUrl))
                 .setTitle("AAA-AI image")
                 .setDescription("Saving to Pictures/AAA-AI")
