@@ -25,7 +25,7 @@ class CrashActivity : Activity() {
             }
 
         val text = TextView(this).apply {
-            text = "Super AI crashed on startup.\n\n${message}\n\n${stack}"
+            text = "Super AI crashed on startup.\n\n${msg}\n\n${stack}"
             setPadding(32, 32, 32, 32)
             textSize = 11f
             setTextIsSelectable(true)
