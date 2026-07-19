@@ -1480,7 +1480,8 @@ function pollinationsUrl(prompt, opts) {
   const p = encodeURIComponent(prompt);
   const w = opts?.width || 1024, h = opts?.height || 1024;
   const model = opts?.model ? "&model=" + opts.model : "&model=flux";
-  return "https://image.pollinations.ai/prompt/" + p + "?width=" + w + "&height=" + h + "&nologo=true" + model + (opts?.enhance ? "&enhance=true" : "");
+  const seed = opts?.seed != null ? "&seed=" + opts.seed : "";
+  return "https://image.pollinations.ai/prompt/" + p + "?width=" + w + "&height=" + h + "&nologo=true" + model + (opts?.enhance ? "&enhance=true" : "") + seed;
 }
 
 const KIE_BASE = "https://api.kie.ai";
@@ -1532,9 +1533,9 @@ async function generateImage(prompt, env, opts) {
   let buf = null;
   try { buf = await generateImageKie(prompt, env); } catch (e) {}
   if (buf) return buf;
-  // Fallback to Pollinations (free).
+  // Fallback to Pollinations (free). Random seed so repeated calls differ.
   try {
-    const r = await fetch(pollinationsUrl(prompt, { width: w, height: h, enhance: true }));
+    const r = await fetch(pollinationsUrl(prompt, { width: w, height: h, enhance: true, seed: Math.floor(Math.random() * 1e9) }));
     if (r.ok) {
       const ct = r.headers.get("content-type") || "";
       if (ct.indexOf("image") >= 0) return await r.arrayBuffer();
@@ -1593,26 +1594,35 @@ async function generateVideoShotstack(prompt, env, useProd, vertical) {
   const safe = prompt.replace(/[<>&"]/g, "").slice(0, 80);
   const origin = (env.PUBLIC_ORIGIN || "https://aaa-ai-bot.aaateam.workers.dev").replace(/\/$/, "");
   const iw = vertical ? 720 : 1280, ih = vertical ? 1280 : 720;
+  // Randomize so every render looks different (not the same clip each time).
+  const rnd = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  const seed = Math.floor(Math.random() * 1e9);
+  const styles = ["neon purple and pink", "cyberpunk teal and magenta", "holographic violet and cyan", "electric blue and gold", "synthwave orange and purple"];
+  const moods = ["cinematic dramatic lighting", "soft dreamy glow", "high contrast moody", "bright energetic", "futuristic volumetric light"];
+  const style = rnd(styles), mood = rnd(moods);
+  const effectsAll = ["zoomIn", "slideLeft", "kenBurns", "slideUp", "slideDown", "zoomOut"];
+  const effects = effectsAll.sort(() => Math.random() - 0.5).slice(0, 3);
+  const titles = ["Super AI", "Ari AI", "Your AI Assistant", "Powered by Super AI", "Meet Ari AI"];
+  const titleText = rnd(titles);
   // Generate AI images from the prompt (free, Pollinations) in PARALLEL with a
   // hard per-request timeout, store each to R2, and serve via the public
   // /api/asset route (Pollinations' own URL 302-redirects and breaks Shotstack's
   // fetcher). Bounded so the whole job fits the Worker's time budget.
   const imgPrompts = vertical
     ? [
-        "Cinematic vertical " + safe + ", neon purple pink, futuristic AI, 9:16, high detail",
-        safe + " app UI, glass holographic neon, 9:16, high detail",
+        "Cinematic vertical " + safe + ", " + style + ", futuristic AI, 9:16, " + mood,
+        safe + " app UI, glass holographic neon, 9:16, " + mood,
       ]
     : [
-        "Cinematic " + safe + ", neon purple and pink, futuristic AI city, glowing, 16:9, high detail, cinematic lighting",
-        safe + " smart assistant app, modern glass UI, holographic, neon, 16:9, high detail",
-        "Abstract " + safe + ", flowing neon energy, purple pink gradient, 16:9, 4k, bokeh",
+        "Cinematic " + safe + ", " + style + ", futuristic AI city, glowing, 16:9, " + mood,
+        safe + " smart assistant app, modern glass UI, holographic, neon, 16:9, " + mood,
+        "Abstract " + safe + ", flowing neon energy, " + style + " gradient, 16:9, 4k, bokeh",
       ];
-  const effects = ["zoomIn", "slideLeft", "kenBurns"];
   const fetchImg = async (p, i) => {
     const ac = new AbortController();
     const to = setTimeout(() => ac.abort(), 15000);
     try {
-      const u = "https://image.pollinations.ai/prompt/" + encodeURIComponent(p) + "?width=" + iw + "&height=" + ih + "&nologo=true&model=flux&enhance=true";
+      const u = "https://image.pollinations.ai/prompt/" + encodeURIComponent(p) + "?width=" + iw + "&height=" + ih + "&nologo=true&model=flux&enhance=true&seed=" + seed;
       const r = await fetch(u, { signal: ac.signal });
       if (!r.ok) return null;
       const ct = r.headers.get("content-type") || "";
@@ -1637,7 +1647,7 @@ async function generateVideoShotstack(prompt, env, useProd, vertical) {
     clips.push({ asset: { type: "title", text: "Super AI", style: "minimal" }, start: 0, length: 3 });
     t = 3;
   }
-  clips.push({ asset: { type: "title", text: "Super AI", style: "minimal" }, start: t, length: 2 });
+  clips.push({ asset: { type: "title", text: titleText, style: "minimal" }, start: t, length: 2 });
   const payload = {
     timeline: {
       background: "#0a0014",
