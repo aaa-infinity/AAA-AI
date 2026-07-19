@@ -85,14 +85,31 @@ jobs:
         if: ${{ env.BUILD_TDLIB == 'true' }}
         continue-on-error: true
         run: |
-          git clone --depth 1 --branch v1.8.25 https://github.com/tdlib/tdlib.git /tmp/tdlib
-          cd /tmp/tdlib/example/android
-          # Point the sample at our local.properties sdk/ndk
-          echo "sdk.dir=$ANDROID_HOME" > local.properties
-          echo "ndk.dir=$ANDROID_HOME/ndk/26.1.10909125" >> local.properties
-          ../gradlew assembleRelease || ../gradlew assembleDebug
+          set -x
+          ANDROID_HOME=/usr/local/lib/android/sdk
+          NDK_VER=26.1.10909125
+          # 1) Clone the correct upstream repo (with retry).
+          for i in 1 2 3; do
+            rm -rf /tmp/td && git clone --depth 1 https://github.com/tdlib/td.git /tmp/td && break
+            sleep 5
+          done
+          # 2) Install the SDK pieces TDLib's build scripts require.
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+            "platforms;android-34" "cmake;3.22.1" "ndk;$NDK_VER" || true
+          cd /tmp/td/example/android
+          # 3) Build OpenSSL + TDLib native libs for Android (Java interface).
+          ./build-openssl.sh "$ANDROID_HOME" "$NDK_VER" "" "" ""
+          ./build-tdlib.sh  "$ANDROID_HOME" "$NDK_VER" "third-party/openssl" "c++_static" "Java"
+          # 4) Assemble the AAR via the bundled Gradle project.
+          ./gradlew assembleRelease || ./gradlew assembleDebug || true
           AAR=$(find . -name "tdlib*.aar" | head -1)
-          if [ -n "$AAR" ]; then mkdir -p ${{ github.workspace }}/app/libs && cp "$AAR" ${{ github.workspace }}/app/libs/tdlib.aar && echo "TDLIB AAR ready"; fi
+          if [ -n "$AAR" ]; then
+            mkdir -p ${{ github.workspace }}/app/libs
+            cp "$AAR" ${{ github.workspace }}/app/libs/tdlib.aar
+            echo "TDLIB AAR ready: $AAR"
+          else
+            echo "TDLIB AAR NOT produced"
+          fi
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
 

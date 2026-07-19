@@ -38,9 +38,6 @@ class FirebaseApplication : Application() {
             Firebase.crashlytics.setCrashlyticsCollectionEnabled(true)
         }
         runCatching {
-            AdMobManager.initialize(this)
-        }
-        runCatching {
             val config = Firebase.remoteConfig
             val settings = remoteConfigSettings {
                 minimumFetchIntervalInSeconds = 3600
@@ -58,11 +55,32 @@ class FirebaseApplication : Application() {
      */
     private fun installCrashReporter() {
         val default = Thread.getDefaultUncaughtExceptionHandler()
+        var handled = false
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            // Persist + (best effort) upload the stack.
             reportCrash(thread, throwable)
-            // Give the network send a brief moment, then delegate to the OS default
-            // handler so Android still shows the crash dialog / restarts as normal.
-            default?.uncaughtException(thread, throwable)
+
+            // Surface the crash in a readable Activity instead of letting Android
+            // silently kill the process ("app keeps stopping"). Guard against a
+            // crash-loop by only launching the viewer once per process.
+            if (!handled) {
+                handled = true
+                try {
+                    val sw = java.io.StringWriter()
+                    throwable.printStackTrace(java.io.PrintWriter(sw))
+                    val intent = CrashActivity.buildIntent(
+                        this@FirebaseApplication,
+                        throwable.message ?: throwable.javaClass.name,
+                        sw.toString()
+                    )
+                    startActivity(intent)
+                    // Give the new Activity a moment to draw before we exit this
+                    // thread gracefully.
+                    Thread.sleep(400)
+                } catch (_: Throwable) { /* ignore */ }
+            }
+            // Do NOT delegate to the OS default — it would kill the process and
+            // hide the crash. We've already shown a readable error screen.
         }
     }
 
