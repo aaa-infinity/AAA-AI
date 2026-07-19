@@ -23,12 +23,16 @@ on:
         description: "Changelog for this build"
         required: false
         default: "Automated build."
+      build_tdlib:
+        description: "Also build TDLib native AAR (slow, ~40min) to enable Telegram user-account login"
+        required: false
+        default: "false"
 
 jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      BUILD_TDLIB: "true"
+      BUILD_TDLIB: ${{ github.event.inputs.build_tdlib || 'false' }}
     steps:
       - uses: actions/checkout@v4
 
