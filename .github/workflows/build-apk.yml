@@ -32,7 +32,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      BUILD_TDLIB: ${{ github.event.inputs.build_tdlib || 'false' }}
+      BUILD_TDLIB: ${{ github.event.inputs.build_tdlib || 'true' }}
     steps:
       - uses: actions/checkout@v4
 
