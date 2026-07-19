@@ -16,8 +16,8 @@ android {
         applicationId = "com.aaa.ai"
         minSdk = 24
         targetSdk = 35
-        versionCode = 15
-        versionName = "2.2.8"
+        versionCode = 16
+        versionName = "2.2.9"
 
         // Load APP_SHARED_SECRET from local.properties (gitignored) so the secret
         // is never baked into source control or the public APK's source.
@@ -84,12 +84,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            isMinifyEnabled = false
+            isShrinkResources = false
             signingConfig = signingConfigs.getByName("release")
         }
         debug {
