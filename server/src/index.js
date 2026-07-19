@@ -1479,7 +1479,8 @@ export async function verifyTelegramWidget(fields) {
 function pollinationsUrl(prompt, opts) {
   const p = encodeURIComponent(prompt);
   const w = opts?.width || 1024, h = opts?.height || 1024;
-  return "https://image.pollinations.ai/prompt/" + p + "?width=" + w + "&height=" + h + "&nologo=true&model=flux";
+  const model = opts?.model ? "&model=" + opts.model : "&model=flux";
+  return "https://image.pollinations.ai/prompt/" + p + "?width=" + w + "&height=" + h + "&nologo=true" + model + (opts?.enhance ? "&enhance=true" : "");
 }
 
 const KIE_BASE = "https://api.kie.ai";
@@ -1520,6 +1521,26 @@ async function generateImageKie(prompt, env) {
     }
     return null;
   } catch (e) { return null; }
+}
+
+/** Unified image generator with provider failover: KIE (best quality) -> Pollinations.
+ *  `opts` = { width, height, ratio }. Returns an ArrayBuffer or null. */
+async function generateImage(prompt, env, opts) {
+  opts = opts || {};
+  const w = opts.width || 1024, h = opts.height || 1024;
+  // Try KIE first (higher quality) when a key is present.
+  let buf = null;
+  try { buf = await generateImageKie(prompt, env); } catch (e) {}
+  if (buf) return buf;
+  // Fallback to Pollinations (free).
+  try {
+    const r = await fetch(pollinationsUrl(prompt, { width: w, height: h, enhance: true }));
+    if (r.ok) {
+      const ct = r.headers.get("content-type") || "";
+      if (ct.indexOf("image") >= 0) return await r.arrayBuffer();
+    }
+  } catch (e) {}
+  return null;
 }
 
 /** Generate a short promo video via KIE.AI (grok-imagine/text-to-video).
@@ -1565,50 +1586,64 @@ async function generateVideoKie(prompt, env) {
  *  Builds a real video: 2 AI-generated images (Pollinations) fetched in-worker,
  *  stored to R2, and served via the public /api/asset route as Ken-Burns image
  *  clips, plus a "Super AI" title overlay at the end. */
-async function generateVideoShotstack(prompt, env, useProd) {
+async function generateVideoShotstack(prompt, env, useProd, vertical) {
   const key = await providerKey(env, "shotstack", "SHOTSTACK_KEY");
   if (!key) return null;
   const base = useProd ? "https://api.shotstack.io/edit/render" : "https://api.shotstack.io/edit/stage/render";
   const safe = prompt.replace(/[<>&"]/g, "").slice(0, 80);
   const origin = (env.PUBLIC_ORIGIN || "https://aaa-ai-bot.aaateam.workers.dev").replace(/\/$/, "");
-  // Generate 2 AI images from the prompt (free, Pollinations), store to R2, get a
-  // public URL Shotstack's renderer can fetch (Pollinations' own URL 302-redirects
-  // and breaks Shotstack's fetcher).
-  const imgPrompts = [
-    "Cinematic " + safe + ", neon purple and pink, futuristic AI, glowing, 16:9, high detail",
-    safe + " smart assistant app, modern glass UI, holographic, neon, 16:9, high detail",
-  ];
-  const imageUrls = [];
-  for (let i = 0; i < imgPrompts.length; i++) {
+  const iw = vertical ? 720 : 1280, ih = vertical ? 1280 : 720;
+  // Generate AI images from the prompt (free, Pollinations) in PARALLEL with a
+  // hard per-request timeout, store each to R2, and serve via the public
+  // /api/asset route (Pollinations' own URL 302-redirects and breaks Shotstack's
+  // fetcher). Bounded so the whole job fits the Worker's time budget.
+  const imgPrompts = vertical
+    ? [
+        "Cinematic vertical " + safe + ", neon purple pink, futuristic AI, 9:16, high detail",
+        safe + " app UI, glass holographic neon, 9:16, high detail",
+      ]
+    : [
+        "Cinematic " + safe + ", neon purple and pink, futuristic AI city, glowing, 16:9, high detail, cinematic lighting",
+        safe + " smart assistant app, modern glass UI, holographic, neon, 16:9, high detail",
+        "Abstract " + safe + ", flowing neon energy, purple pink gradient, 16:9, 4k, bokeh",
+      ];
+  const effects = ["zoomIn", "slideLeft", "kenBurns"];
+  const fetchImg = async (p, i) => {
+    const ac = new AbortController();
+    const to = setTimeout(() => ac.abort(), 15000);
     try {
-      const u = "https://image.pollinations.ai/prompt/" + encodeURIComponent(imgPrompts[i]) + "?width=1280&height=720&nologo=true";
-      const r = await fetch(u);
-      if (r.ok) {
-        const ct = r.headers.get("content-type") || "";
-        if (ct.indexOf("image") >= 0) {
-          const buf = await r.arrayBuffer();
-          const k = "temp/shotstack_" + Date.now() + "_" + i + ".jpg";
-          if (env.aaa_assets) await env.aaa_assets.put(k, buf, { httpMetadata: { contentType: "image/jpeg" } });
-          imageUrls.push(origin + "/api/asset/" + k);
-        }
-      }
-    } catch (e) {}
-  }
+      const u = "https://image.pollinations.ai/prompt/" + encodeURIComponent(p) + "?width=" + iw + "&height=" + ih + "&nologo=true&model=flux&enhance=true";
+      const r = await fetch(u, { signal: ac.signal });
+      if (!r.ok) return null;
+      const ct = r.headers.get("content-type") || "";
+      if (ct.indexOf("image") < 0) return null;
+      const buf = await r.arrayBuffer();
+      const k = "temp/shotstack_" + Date.now() + "_" + i + ".jpg";
+      if (env.aaa_assets) await env.aaa_assets.put(k, buf, { httpMetadata: { contentType: "image/jpeg" } });
+      return origin + "/api/asset/" + k;
+    } catch (e) { return null; } finally { clearTimeout(to); }
+  };
+  const results = await Promise.all(imgPrompts.map((p, i) => fetchImg(p, i)));
+  const imageUrls = results.filter(Boolean);
+
   const clips = [];
   let t = 0;
   if (imageUrls.length) {
-    for (const src of imageUrls) {
-      clips.push({ asset: { type: "image", src: src }, start: t, length: 3, effect: "zoomIn", transition: { in: "fade" } });
-      t += 3;
+    for (let i = 0; i < imageUrls.length; i++) {
+      clips.push({ asset: { type: "image", src: imageUrls[i] }, start: t, length: 1.5, effect: effects[i % effects.length], transition: { in: "fade" } });
+      t += 1.5;
     }
   } else {
     clips.push({ asset: { type: "title", text: "Super AI", style: "minimal" }, start: 0, length: 3 });
     t = 3;
   }
-  clips.push({ asset: { type: "title", text: "Super AI", style: "minimal" }, start: t, length: 3 });
+  clips.push({ asset: { type: "title", text: "Super AI", style: "minimal" }, start: t, length: 2 });
   const payload = {
-    timeline: { tracks: [{ clips: clips }] },
-    output: { format: "mp4", resolution: "sd" },
+    timeline: {
+      background: "#0a0014",
+      tracks: [{ clips: clips }],
+    },
+    output: { format: "mp4", resolution: vertical ? "mobile" : "hd" },
   };
   try {
     const sub = await fetch(base, {
@@ -1839,10 +1874,11 @@ async function sendAdminMenu(chatId) {
       [b("📊 Stats", "stats"), b("🩺 Status", "status"), b("📋 Review", "review")],
       [b("📣 Broadcast", "bc"), b("📢 Channel", "ch"), b("🔄 Sync", "sync")],
       [b("🐞 Crashes", "crashlog"), b("🧹 Cleanup", "cleanup"), b("🤖 Ask AI", "ai")],
-      [b("🎨 Image", "img"), b("🎬 Video", "vid"), b("⬆️ Upload YT", "ytupload")],
-      [b("🔑 API Key", "sk"), b("🔍 Key Status", "keys"), b("📊 Report", "report")],
-      [b("🤖 Auto Post", "autopost"), b("🎟 Promo", "promo"), b("🏠 Menu", "menu")],
-      [b("🧠 Teach AI", "teach"), b("📚 Learnings", "learnings"), b("🤖 Ask AI", "ai")],
+      [b("🎨 Image", "img"), b("🎬 Video", "vid"), b("📱 Reel", "reel")],
+      [b("⬆️ Upload YT", "ytupload"), b("🔑 API Key", "sk"), b("🔍 Key Status", "keys")],
+      [b("📊 Report", "report"), b("🤖 Auto Post", "autopost"), b("🎟 Promo", "promo")],
+      [b("🧠 Teach AI", "teach"), b("📚 Learnings", "learnings"), b("🏠 Menu", "menu")],
+      [b("📡 Dashboard", "dashboard"), b("⏰ Schedule", "schedule"), b("🤖 Ask AI", "ai")],
     ],
   };
   const head =
@@ -1884,7 +1920,7 @@ async function adminPromptKey(chatId, provider) {
 // using the existing helpers. If nothing actionable is detected, it falls back
 // to a normal AI chat answer.
 
-const ADMIN_ACTIONS = ["stats", "status", "review", "apps", "broadcast", "channel", "sync", "version", "crashlog", "report", "credit", "cleanup", "setkey", "keys", "chat", "ai", "start", "menu", "help", "img", "video", "promo", "promostats", "autopost", "credits", "setpoints", "grant", "grantme", "supabase", "yt", "ytconnect", "ytstats", "ytupdate", "crashlytics", "cf", "config", "secrets", "r2", "d1", "sql", "kv", "firebase", "adminadd", "adminrm", "admins", "store", "setlogo", "login", "teach", "learnings"];
+const ADMIN_ACTIONS = ["stats", "status", "review", "apps", "broadcast", "channel", "sync", "version", "crashlog", "report", "credit", "cleanup", "setkey", "keys", "chat", "ai", "start", "menu", "help", "img", "video", "reel", "promo", "promostats", "autopost", "credits", "setpoints", "grant", "grantme", "supabase", "yt", "ytconnect", "ytstats", "ytupdate", "crashlytics", "cf", "config", "secrets", "r2", "d1", "sql", "kv", "firebase", "adminadd", "adminrm", "admins", "store", "setlogo", "login", "teach", "learnings", "schedule", "dashboard"];
 
 /** Master reference of every admin command: how to call it, what it does, and
  *  the natural-language phrases that should trigger it. Used to build /help and
@@ -1921,8 +1957,11 @@ const COMMAND_REFS = [
   { cmd: "/ytupdate", cat: "API Keys", desc: "Update YouTube channel description", nl: "update youtube" },
   { cmd: "/img", cat: "Content & Media", desc: "/img <prompt> — generate image (KIE→Pollinations)", nl: "generate image, make a picture, draw" },
   { cmd: "/video", cat: "Content & Media", desc: "/video <prompt> — generate video (KIE→Shotstack→Pollinations)", nl: "generate video, make a clip, render promo" },
+  { cmd: "/reel", cat: "Content & Media", desc: "/reel <prompt> — vertical 9:16 short (Reels/Shorts)", nl: "make a reel, vertical short, tiktok" },
   { cmd: "/teach", cat: "AI Brain", desc: "/teach <topic> | <how> — teach the AI (self-improves)", nl: "teach the ai, remember this, learn this" },
   { cmd: "/learnings", cat: "AI Brain", desc: "/learnings — view AI memory + provider stats", nl: "learnings, what have you learned, memory" },
+  { cmd: "/schedule", cat: "Users & Growth", desc: "/schedule <minutes> <msg> — queue a channel post", nl: "schedule post, queue message, later" },
+  { cmd: "/dashboard", cat: "General", desc: "/dashboard — live snapshot (users, YouTube, warnings)", nl: "dashboard, status snapshot, live" },
   { cmd: "/crashlog", cat: "System & Health", desc: "App crash reports + AI root-cause", nl: "crashes, crash log, crash reports" },
   { cmd: "/crashlytics", cat: "System & Health", desc: "Firebase Crashlytics status", nl: "crashlytics, firebase crashes" },
   { cmd: "/status", cat: "System & Health", desc: "Service health (KV/R2/D1/bots)", nl: "status, health, is it up" },
@@ -2143,7 +2182,7 @@ async function runAdminAction(chatId, intent, from) {
         stats: "/stats", status: "/status", review: "/review", apps: "/apps",
         broadcast: "/broadcast", channel: "/channel", sync: "/sync", version: "/version",
         crashlog: "/crashlog", report: "/report", credit: "/credits", cleanup: "/cleanup",
-        setkey: "/setkey", keys: "/keys", img: "/img", video: "/video", promo: "/promo",
+        setkey: "/setkey", keys: "/keys", img: "/img", video: "/video", reel: "/reel", promo: "/promo",
         promostats: "/promostats", autopost: "/autopost", credits: "/credits",
         setpoints: "/setpoints", grant: "/grant", grantme: "/grantme", supabase: "/supabase",
         yt: "/yt", ytconnect: "/ytconnect", ytstats: "/ytstats", ytupdate: "/ytupdate",
@@ -2151,7 +2190,7 @@ async function runAdminAction(chatId, intent, from) {
         r2: "/r2", d1: "/d1", sql: "/sql", kv: "/kv", firebase: "/firebase",
         adminadd: "/adminadd", adminrm: "/adminrm", admins: "/admins", store: "/store",
         setlogo: "/setlogo",
-        teach: "/teach", learnings: "/learnings",
+        teach: "/teach", learnings: "/learnings", schedule: "/schedule", dashboard: "/dashboard",
       };
       const cmdText = ACTION_TO_CMD[intent.action];
       if (cmdText) {
@@ -2463,6 +2502,8 @@ async function handleAdmin(update) {
         ch: ["ch", "📢 <b>Channel post</b>\nReply with the message (or \"ai: &lt;topic&gt;\") to post to the public channel."],
         img: ["img", "🎨 <b>Image</b>\nReply with the image prompt to generate."],
         vid: ["vid", "🎬 <b>Video</b>\nReply with the video prompt to render."],
+        reel: ["reel", "📱 <b>Reel</b>\nReply with the prompt for a vertical 9:16 short."],
+        schedule: ["schedule", "⏰ <b>Schedule</b>\nReply with: &lt;minutes&gt; &lt;message&gt; (e.g. 30 Drop a new AI tip!)"],
         ai: ["ai", "🤖 <b>Ask AI</b>\nReply with your question — I'll answer using live stats & provider health."],
       };
       if (promptMap[data]) {
@@ -2470,7 +2511,7 @@ async function handleAdmin(update) {
         return;
       }
       // Map a tap action to its command and run it.
-      const direct = { stats: "/stats", status: "/status", review: "/review", sync: "/sync", crashlog: "/crashlog", cleanup: "/cleanup", ai: "/ai", yt: "/yt", keys: "/keys", report: "/report", autopost: "/autopost", promo: "/promo", ytupload: "/ytupload", teach: "/teach", learnings: "/learnings" };
+      const direct = { stats: "/stats", status: "/status", review: "/review", sync: "/sync", crashlog: "/crashlog", cleanup: "/cleanup", ai: "/ai", yt: "/yt", keys: "/keys", report: "/report", autopost: "/autopost", promo: "/promo", ytupload: "/ytupload", reel: "/reel", teach: "/teach", learnings: "/learnings", schedule: "/schedule", dashboard: "/dashboard" };
       if (direct[data]) {
         await handleAdmin({ message: { chat: { id: chatId }, text: direct[data], from: cq.from } });
       }
@@ -2569,7 +2610,7 @@ async function handleAdmin(update) {
         }
         return;
       }
-      const route = { bc: "/broadcast ", ch: "/channel ", img: "/img ", vid: "/video " }[awaiting];
+      const route = { bc: "/broadcast ", ch: "/channel ", img: "/img ", vid: "/video ", reel: "/reel ", schedule: "/schedule " }[awaiting];
       if (route) {
         await handleAdmin({ message: { chat: { id: chatId }, text: route + text, from: msg.from } });
         return;
@@ -3310,27 +3351,119 @@ async function handleAdmin(update) {
   // ---- Admin AI: auto-generate image (→ admin chat + channel) ----
   if (cmd === "/img" || cmd === "/image") {
     const prompt = args.slice(1).join(" ").trim();
-    if (!prompt) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "Usage: /img &lt;prompt&gt;  — generates an image via the Ari AI engine"); return; }
+    if (!prompt) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "Usage: /img &lt;prompt&gt;  — generates an image via the Ari AI engine\nOptional: end with <code>ar:16:9</code> or <code>ar:1:1</code> for aspect ratio."); return; }
+    // Parse optional aspect-ratio suffix: "ar:16:9" / "ar:1:1"
+    let ar = "1:1", ptext = prompt;
+    const m = prompt.match(/\bar:(\d+):(\d+)\s*$/i);
+    if (m) { ar = m[1] + ":" + m[2]; ptext = prompt.slice(0, m.index).trim(); }
+    const dims = ar === "16:9" ? { width: 1280, height: 720 } : ar === "9:16" ? { width: 720, height: 1280 } : { width: 1024, height: 1024 };
     await tgAction(ENV.ADMIN_BOT_TOKEN, chatId, "upload_photo");
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🎨 Generating image… (" + ar + ")");
     try {
-      let buf = await generateImageKie(prompt, ENV);
-      if (!buf) {
-        const url = pollinationsUrl(prompt, { width: 1024, height: 1024 });
-        buf = await fetch(url).then(function (r) { return r.arrayBuffer(); });
+      let buf = await generateImage(ptext, ENV, dims);
+      if (!buf || !buf.byteLength) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Image generation failed (providers unavailable). Try again."); return; }
+      const url = (ENV.PUBLIC_ORIGIN || "https://aaa-ai-bot.aaateam.workers.dev").replace(/\/$/, "") + "/api/asset/temp/last_img.jpg";
+      // Cache to R2 so the "repost" / channel can reuse it.
+      try { if (ENV.aaa_assets) await ENV.aaa_assets.put("temp/last_img.jpg", buf, { httpMetadata: { contentType: "image/jpeg" } }); } catch (_) {}
+      const caption = "🎨 <b>" + htmlEscape(ptext.slice(0, 200)) + "</b>\n<i>Generated by the Ari AI engine</i>";
+      // 1) Admin chat (URL when possible to avoid base64 limits)
+      try {
+        const up = await tgApi(ENV.ADMIN_BOT_TOKEN, "sendPhoto", { chat_id: chatId, photo: url, caption: caption, parse_mode: "HTML" });
+        if (!up || !up.ok) await tgApi(ENV.ADMIN_BOT_TOKEN, "sendPhoto", { chat_id: chatId, photo: "data:image/jpeg;base64," + Buffer.from(buf).toString("base64"), caption: caption, parse_mode: "HTML" });
+      } catch (e) {
+        await tgApi(ENV.ADMIN_BOT_TOKEN, "sendPhoto", { chat_id: chatId, photo: "data:image/jpeg;base64," + Buffer.from(buf).toString("base64"), caption: caption, parse_mode: "HTML" });
       }
-      if (!buf || !buf.byteLength) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Image generation failed. Try again."); return; }
-      const b64 = Buffer.from(buf).toString("base64");
-      const caption = "🎨 <b>" + htmlEscape(prompt.slice(0, 200)) + "</b>\n<i>Generated by the Ari AI engine</i>";
-      // 1) Admin chat
-      await tgApi(ENV.ADMIN_BOT_TOKEN, "sendPhoto", { chat_id: chatId, photo: "data:image/jpeg;base64," + b64, caption: caption, parse_mode: "HTML" });
       // 2) Channel
-      const chOk = await postMediaToChannel(ENV, "photo", b64, caption);
+      const chOk = await postMediaToChannelUrl(ENV, "photo", url, caption);
       if (chOk) await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ Also posted to channel.");
-      try { await recordLearning(ENV, "image", { prompt: prompt, ok: true }); } catch (_) {}
+      try { await recordLearning(ENV, "image", { prompt: ptext, ok: true }); } catch (_) {}
     } catch (e) {
-      try { await recordLearning(ENV, "image", { prompt: prompt, ok: false, notes: String((e && e.message) || e).slice(0,80) }); } catch (_) {}
+      try { await recordLearning(ENV, "image", { prompt: ptext, ok: false, notes: String((e && e.message) || e).slice(0,80) }); } catch (_) {}
       await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Image error: " + htmlEscape(String(e && e.message || e)));
     }
+    return;
+  }
+
+  /** Shared video pipeline: render (KIE→Shotstack→Pollinations), cache to R2,
+   *  upload to YouTube (new video), post to admin chat + channel. Streams the
+   *  source URL to avoid in-memory base64 (large clips previously crashed the worker). */
+  async function doVideo(ENV, chatId, prompt, opts) {
+    opts = opts || {};
+    const vertical = !!opts.vertical;
+    if (!prompt) {
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, vertical
+        ? "Usage: /reel &lt;text&gt; — renders a vertical 9:16 short (Reels/Shorts)."
+        : "Usage: /video &lt;text&gt; — renders a promo video via the Ari AI engine");
+      return;
+    }
+    if (!ENV.KIE_API_KEY && !ENV.SHOTSTACK_KEY && !ENV.JSON2VIDEO_KEY) {
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ No video provider set. Add one with /setkey kie <key>, /setkey shotstack <key>, or /setkey json2video <key>");
+      return;
+    }
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, (vertical ? "📱 Rendering vertical reel…" : "🎬 Rendering video…") + " (this can take ~60s)");
+    await tgAction(ENV.ADMIN_BOT_TOKEN, chatId, "upload_video");
+    let srcName = "kie";
+    let res = null, buf = null, videoUrl = null;
+    try { res = await generateVideoKie(prompt, ENV); } catch (e) { srcName = "kie|ERR " + String((e && e.message) || e).slice(0, 80); }
+    if (res && res.buf) { buf = res.buf; videoUrl = res.url; } else if (res) { buf = res; }
+    if (!buf) { srcName = "shotstack"; try { res = await generateVideoShotstack(prompt, ENV, false, vertical); } catch (e) { srcName = "shotstack|ERR " + String((e && e.message) || e).slice(0, 80); } if (res && res.buf) { buf = res.buf; videoUrl = res.url; } else if (res) { buf = res; } }
+    // Validate the Shotstack URL actually serves a real video; if it's a broken
+    // render (HTML error page), drop the URL and fall back to a Pollinations clip.
+    if (videoUrl) {
+      try {
+        const pr = await fetch(videoUrl);
+        const ct = pr.headers.get("content-type") || "";
+        const len = Number(pr.headers.get("content-length") || 0);
+        if (ct.indexOf("video") < 0 || len < 5000) videoUrl = null;
+      } catch (e) { videoUrl = null; }
+    }
+    if (!buf && !videoUrl) { srcName = "promo"; try { res = await generatePromoVideo(prompt, ENV); } catch (e) { srcName = "promo|ERR " + String((e && e.message) || e).slice(0, 80); } if (res && res.buf) { buf = res.buf; videoUrl = res.url; } else if (res) { buf = res; } }
+    if (!buf && !videoUrl) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Video generation failed (no API credits or API error)."); return; }
+    const caption = "🎬 <b>" + htmlEscape(prompt.slice(0, 200)) + "</b>\n<i>Rendered by the Ari AI engine</i>";
+    const cacheKey = vertical ? "temp/last_reel.mp4" : "temp/last_promo.mp4";
+    // If we only have a URL, download it to a buffer so caching/YouTube/Telegram
+    // all use a verified video (and we avoid caching an HTML error page).
+    let safeUrl = videoUrl;
+    if (safeUrl && !buf) {
+      try { const dv = await fetch(safeUrl); if (dv.ok) buf = await dv.arrayBuffer(); } catch (e) { buf = null; }
+    }
+    try {
+      if (ENV.aaa_assets && buf) {
+        await ENV.aaa_assets.put(cacheKey, buf, { httpMetadata: { contentType: "video/mp4" } });
+        await ENV.AAA_KV.put("dbg_r2put", "ok " + buf.byteLength);
+      } else if (ENV.aaa_assets && safeUrl) {
+        const r = await fetch(safeUrl);
+        await ENV.aaa_assets.put(cacheKey, r.body, { httpMetadata: { contentType: "video/mp4" } });
+        await ENV.AAA_KV.put("dbg_r2put", "ok streamed");
+      } else { await ENV.AAA_KV.put("dbg_r2put", "no binding"); }
+    } catch (e) { try { await ENV.AAA_KV.put("dbg_r2put", "ERR " + String((e && e.message) || e).slice(0,120)); } catch (_) {} }
+    const ytRefresh = ENV.AAA_KV ? await ENV.AAA_KV.get("yt_owner_refresh") : "";
+    if (ytRefresh) {
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "📺 Uploading to YouTube…");
+      try {
+        const yt = await uploadVideoToYouTube(safeUrl || buf, "Super AI — " + prompt.slice(0, 60), "Made with Super AI (Ari AI engine). Get the app: https://aaa-store.aaateam.workers.dev/store", ENV);
+        await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, yt ? "✅ Uploaded to YouTube." : "⚠️ YouTube upload failed (reconnect with /ytconnect).");
+        if (yt) { try { await adminChannelNotify(ENV, "Video Uploaded to YouTube", { Prompt: prompt.slice(0, 80), Type: vertical ? "Reel" : "Video" }); } catch (_) {} }
+      } catch (e) {
+        await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ YouTube upload error: " + htmlEscape(String((e && e.message) || e).slice(0, 150)));
+      }
+    } else {
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "ℹ️ YouTube not connected. Tap 🔑 / connect via /ytconnect to auto-upload videos.");
+    }
+    try {
+      const payload = safeUrl
+        ? { chat_id: chatId, video: safeUrl, caption: caption, parse_mode: "HTML" }
+        : { chat_id: chatId, video: "data:video/mp4;base64," + Buffer.from(buf).toString("base64"), caption: caption, parse_mode: "HTML" };
+      const up = await tgApi(ENV.ADMIN_BOT_TOKEN, "sendVideo", payload);
+      if (!up || !up.ok) await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Video rendered but Telegram admin upload failed (size limit).");
+    } catch (e) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Admin chat upload error."); }
+    try {
+      const chOk = safeUrl
+        ? await postMediaToChannelUrl(ENV, "video", safeUrl, caption)
+        : await postMediaToChannel(ENV, "video", Buffer.from(buf).toString("base64"), caption);
+      if (chOk) await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ Also posted to channel.");
+    } catch (e) {}
+    try { await recordLearning(ENV, "video", { prompt: prompt, provider: srcName, vertical: vertical, ok: true }); } catch (_) {}
     return;
   }
 
@@ -3380,73 +3513,50 @@ async function handleAdmin(update) {
     return;
   }
 
+  // ---- Queue a channel post for later (self-running automation) ----
+  // Usage: /schedule <minutes> <message>   e.g. /schedule 30 Drop a new AI tip soon!
+  if (cmd === "/schedule") {
+    const mins = parseInt(args[1], 10);
+    const msg = args.slice(2).join(" ").trim();
+    if (!mins || mins < 1 || !msg) {
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "Usage: /schedule &lt;minutes&gt; &lt;message&gt;\nExample: <code>/schedule 30 Drop a new AI tip in the channel!</code>");
+      return;
+    }
+    try {
+      const list = JSON.parse((await ENV.AAA_KV.get("scheduled_posts")) || "[]");
+      list.push({ at: Date.now() + mins * 60000, msg: msg, by: String(chatId) });
+      await ENV.AAA_KV.put("scheduled_posts", JSON.stringify(list), { expirationTtl: 60 * 60 * 24 * 7 });
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⏰ Scheduled in " + mins + " min:\n" + htmlEscape(msg));
+    } catch (e) {
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Could not schedule: " + htmlEscape(String((e && e.message) || e).slice(0, 100)));
+    }
+    return;
+  }
+
+  // ---- Live dashboard snapshot ----
+  if (cmd === "/dashboard") {
+    const stats = await gatherStats(ENV);
+    const warns = await lowCreditWarnings(ENV);
+    const kb = (ENV.AAA_KV ? (await ENV.AAA_KV.get("kb_corpus")) : "") || "";
+    let out = "📡 <b>Live Dashboard</b>\n";
+    out += "👥 Users: " + (stats.users || "?") + "\n";
+    out += "⬇️ Downloads: " + (stats.downloads || "?") + "\n";
+    out += "💬 Channel: " + (ENV.CHANNEL_ID && ENV.CHANNEL_ID !== "REPLACE_WITH_CHANNEL_ID" ? "✅" : "❌") + "\n";
+    out += "🎬 YouTube: " + ((ENV.AAA_KV && await ENV.AAA_KV.get("yt_owner_refresh")) ? "✅ connected" : "❌ not connected") + "\n";
+    out += "🧠 Knowledge base: " + (kb ? kb.length + " chars" : "⚠️ missing") + "\n";
+    if (warns && warns.length) out += "\n🔔 <b>Warnings:</b>\n" + warns.join("\n");
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, out);
+    return;
+  }
+
   // ---- Admin AI: auto-generate promo video (→ admin chat + channel + YouTube) ----
   if (cmd === "/video" || cmd === "/vid") {
-    const prompt = args.slice(1).join(" ").trim();
-    if (!prompt) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "Usage: /video &lt;text&gt;  — renders a promo video via the Ari AI engine"); return; }
-    if (!ENV.KIE_API_KEY && !ENV.SHOTSTACK_KEY && !ENV.JSON2VIDEO_KEY) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ No video provider set. Add one with /setkey kie <key>, /setkey shotstack <key>, or /setkey json2video <key>"); return; }
-    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🎬 Rendering video… (this can take ~30s)");
-    await tgAction(ENV.ADMIN_BOT_TOKEN, chatId, "upload_video");
-    let srcName = "kie";
-    let res = null; // either ArrayBuffer or { buf, url }
-    let buf = null, videoUrl = null;
-    try { res = await generateVideoKie(prompt, ENV); } catch (e) { srcName = "kie|ERR " + String((e && e.message) || e).slice(0, 80); }
-    if (res && res.buf) { buf = res.buf; videoUrl = res.url; } else if (res) { buf = res; }
-    console.log("[video] after kie:", buf ? buf.byteLength : "null");
-    if (!buf) { srcName = "shotstack"; try { res = await generateVideoShotstack(prompt, ENV, false); } catch (e) { srcName = "shotstack|ERR " + String((e && e.message) || e).slice(0, 80); } if (res && res.buf) { buf = res.buf; videoUrl = res.url; } else if (res) { buf = res; } }
-    console.log("[video] after shotstack:", buf ? buf.byteLength : "null");
-    if (!buf) { srcName = "promo"; try { res = await generatePromoVideo(prompt, ENV); } catch (e) { srcName = "promo|ERR " + String((e && e.message) || e).slice(0, 80); } if (res && res.buf) { buf = res.buf; videoUrl = res.url; } else if (res) { buf = res; } }
-    console.log("[video] after promo:", buf ? buf.byteLength : "null", "url:", videoUrl ? "yes" : "no");
-    try { await ENV.AAA_KV.put("dbg_vsrc", srcName + " bytes=" + (buf ? buf.byteLength : 0) + " url=" + (videoUrl ? "yes" : "no")); } catch (_) {}
-    if (!buf) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Video generation failed (no API credits or API error)."); return; }
-    const caption = "🎬 <b>" + htmlEscape(prompt.slice(0, 200)) + "</b>\n<i>Rendered by the Ari AI engine</i>";
-    // 1) Cache this video so the "📺 Upload" tile can re-upload it later. Prefer
-    //    streaming the source URL (no full in-memory copy) when available.
-    try {
-      if (ENV.aaa_assets) {
-        if (videoUrl) {
-          const r = await fetch(videoUrl);
-          await ENV.aaa_assets.put("temp/last_promo.mp4", r.body, { httpMetadata: { contentType: "video/mp4" } });
-        } else {
-          await ENV.aaa_assets.put("temp/last_promo.mp4", buf, { httpMetadata: { contentType: "video/mp4" } });
-        }
-        await ENV.AAA_KV.put("dbg_r2put", "ok " + (videoUrl ? "streamed" : buf.byteLength));
-      } else {
-        await ENV.AAA_KV.put("dbg_r2put", "no binding");
-      }
-    } catch (e) { try { await ENV.AAA_KV.put("dbg_r2put", "ERR " + String((e && e.message) || e).slice(0,120)); } catch (_) {} }
-    // 2) YouTube (upload as a NEW video if the owner connected YouTube).
-    const ytRefresh = ENV.AAA_KV ? await ENV.AAA_KV.get("yt_owner_refresh") : "";
-    if (ytRefresh) {
-      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "📺 Uploading to YouTube…");
-      try {
-        const ytSrc = videoUrl || buf;
-        const yt = await uploadVideoToYouTube(ytSrc, "Super AI — " + prompt.slice(0, 60), "Made with Super AI (Ari AI engine). Get the app: https://aaa-store.aaateam.workers.dev/store", ENV);
-        await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, yt ? "✅ Uploaded to YouTube." : "⚠️ YouTube upload failed (check the owner token has youtube.upload scope — reconnect with /ytconnect).");
-        if (yt) { try { await adminChannelNotify(ENV, "Video Uploaded to YouTube", { Prompt: prompt.slice(0, 80), Size: (videoUrl ? "streamed" : buf.byteLength + " bytes") }); } catch (_) {} }
-      } catch (e) {
-        await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ YouTube upload error: " + htmlEscape(String((e && e.message) || e).slice(0, 150)));
-      }
-    } else {
-      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "ℹ️ YouTube not connected. Tap 🔑 / connect via /ytconnect to auto-upload videos.");
-    }
-    // 3) Admin chat (best-effort — send the URL when we have it to avoid base64 size limits)
-    try {
-      const payload = videoUrl
-        ? { chat_id: chatId, video: videoUrl, caption: caption, parse_mode: "HTML" }
-        : { chat_id: chatId, video: "data:video/mp4;base64," + Buffer.from(buf).toString("base64"), caption: caption, parse_mode: "HTML" };
-      const up = await tgApi(ENV.ADMIN_BOT_TOKEN, "sendVideo", payload);
-      if (!up || !up.ok) await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Video rendered but Telegram admin upload failed (size limit).");
-    } catch (e) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Admin chat upload error."); }
-    // 4) Public channel (best-effort)
-    try {
-      const chOk = videoUrl
-        ? await postMediaToChannelUrl(ENV, "video", videoUrl, caption)
-        : await postMediaToChannel(ENV, "video", Buffer.from(buf).toString("base64"), caption);
-      if (chOk) await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ Also posted to channel.");
-    } catch (e) {}
-    // 5) Teach the AI from this generation (self-improving loop).
-    try { await recordLearning(ENV, "video", { prompt: prompt, provider: srcName, url: videoUrl || "", ok: true }); } catch (_) {}
+    await doVideo(ENV, chatId, args.slice(1).join(" ").trim(), { vertical: false });
+    return;
+  }
+  // ---- Vertical short (9:16) for Reels / Shorts / TikTok ----
+  if (cmd === "/reel") {
+    await doVideo(ENV, chatId, args.slice(1).join(" ").trim(), { vertical: true });
     return;
   }
 
