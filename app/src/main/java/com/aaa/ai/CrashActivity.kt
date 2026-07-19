@@ -1,6 +1,7 @@
 package com.aaa.ai
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.widget.ScrollView
@@ -24,7 +25,7 @@ class CrashActivity : Activity() {
             }
 
         val text = TextView(this).apply {
-            text = "Super AI crashed on startup.\n\n$message\n\n$stack"
+            text = "Super AI crashed on startup.\n\n${message}\n\n${stack}"
             setPadding(32, 32, 32, 32)
             textSize = 11f
             setTextIsSelectable(true)
@@ -33,8 +34,8 @@ class CrashActivity : Activity() {
     }
 
     companion object {
-        fun buildIntent(activity: Activity, message: String, stack: String): Intent =
-            Intent(activity, CrashActivity::class.java).apply {
+        fun buildIntent(context: Context, message: String, stack: String): Intent =
+            Intent(context, CrashActivity::class.java).apply {
                 putExtra("message", message)
                 putExtra("stack", stack)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

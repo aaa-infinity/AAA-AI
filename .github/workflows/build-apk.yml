@@ -85,6 +85,7 @@ jobs:
         if: ${{ env.BUILD_TDLIB == 'true' }}
         continue-on-error: true
         run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq gperf php perl 2>/dev/null || true
           set -x
           ANDROID_HOME=/usr/local/lib/android/sdk
           NDK_VER=26.1.10909125
