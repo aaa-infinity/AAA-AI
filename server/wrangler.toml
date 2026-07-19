@@ -24,7 +24,7 @@ r2_buckets = [
 
 # Cron: daily cleanup of stale D1 history + expired R2 objects.
 [triggers]
-crons = ["0 3 * * *"]
+crons = ["17 */6 * * *"]
 
 # Tail Worker (requires Workers Paid plan to connect).
 # Wire this up once you add a Workers Paid subscription:

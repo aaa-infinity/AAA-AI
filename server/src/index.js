@@ -18,6 +18,8 @@ const TELEGRAM_API = "https://api.telegram.org/bot";
 const APK_KEY = "app/aaa-ai.apk";
 // Public "AAA FREE AI" Telegram channel (overridable via ENV.CHANNEL_ID secret).
 const DEFAULT_CHANNEL_ID = "-1003932377927";
+// The AAA App Store — the only link we share on Telegram (no direct APK links).
+const STORE_URL = "https://aaa-store.aaateam.workers.dev/store";
 // Points charged per free-AI bot message (deducted server-side from the linked wallet).
 const BOT_MSG_COST = 10;
 // Daily free messages a Telegram user gets before points start being charged.
@@ -59,10 +61,57 @@ begin
   create table if not exists public.transactions (id bigserial primary key, uid text not null, type text not null, amount integer not null, reason text, ts bigint not null);
 end; $$;
 `;
+
+// Idempotent migration for the AAA App Store (ratings + version history).
+const STORE_MIGRATE_SQL = `
+create table if not exists store_ratings (
+  id integer primary key autoincrement,
+  app_id text not null,
+  uid text not null,
+  stars integer not null default 5,
+  review text,
+  created_at integer not null default (unixepoch() * 1000)
+);
+create index if not exists idx_ratings_app on store_ratings(app_id);
+create table if not exists store_versions (
+  id integer primary key autoincrement,
+  app_id text not null,
+  version text not null,
+  changelog text,
+  apk_r2_key text,
+  size integer,
+  created_at integer not null default (unixepoch() * 1000)
+);
+create index if not exists idx_versions_app on store_versions(app_id);
+`;
+
+// Run a set of D1 statements (semicolon-separated) idempotently.
+async function runMigration(env, sql) {
+  if (!env.AAA_DB) return { ok: false, error: "no db" };
+  const stmts = sql.split(";").map(function (s) { return s.trim(); }).filter(Boolean);
+  const out = [];
+  for (const s of stmts) {
+    try { await env.AAA_DB.prepare(s).run(); out.push("ok"); }
+    catch (e) { out.push("err:" + (e && e.message ? e.message : e)); }
+  }
+  return { ok: true, statements: out.length, results: out };
+}
+
 // Module-scoped env (secrets + bindings) assigned at request start.
 let ENV = {};
 
 /** Branded, responsive, animated download landing page with live data. */
+function phoneCard(icon, title, desc) {
+  return '<div class="phone reveal">' +
+    '<div class="phone-top"><span class="notch"></span></div>' +
+    '<div class="phone-screen">' +
+    '<div class="phone-ico">' + icon + '</div>' +
+    '<div class="phone-title">' + title + '</div>' +
+    '<div class="phone-desc">' + desc + '</div>' +
+    '<div class="phone-bar"></div>' +
+    '</div></div>';
+}
+
 function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
   stats = stats || {};
   const ver = versionName ? "v" + versionName : "";
@@ -134,7 +183,8 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     'background:rgba(8,8,15,.7);border-bottom:1px solid rgba(255,255,255,.06)}' +
     '.nav .wrap{display:flex;align-items:center;justify-content:space-between;padding:12px 20px}' +
     '.brand{display:flex;align-items:center;gap:10px;font-weight:800}' +
-    '.brand img{width:32px;height:32px;border-radius:9px;box-shadow:0 2px 10px rgba(124,77,255,.4)}' +
+    '.brand img{height:34px;width:auto;border-radius:9px;filter:drop-shadow(0 2px 10px rgba(124,77,255,.4))}' +
+    '.brand .logo{height:34px;width:auto}' +
     '.nav-links{display:flex;gap:18px;margin-left:auto;margin-right:18px}' +
     '.nav-links a{color:#c9c9d8;font-size:.9rem;font-weight:600;transition:color .15s}' +
     '.nav-links a:hover{color:#fff}' +
@@ -243,6 +293,21 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '.statn{font-size:clamp(1.4rem,4vw,2rem);font-weight:800;' +
     'background:linear-gradient(135deg,#a98bff,#ff8fc0);-webkit-background-clip:text;background-clip:text;color:transparent}' +
     '.statl{color:#9d9daf;font-size:.8rem;margin-top:2px}' +
+    '/* phone mockup showcase */' +
+    '.showcase{padding:8px 20px 24px}' +
+    '.phones{display:flex;gap:18px;justify-content:center;flex-wrap:wrap}' +
+    '.phone{width:170px;background:#0d0d18;border:1px solid rgba(255,255,255,.1);border-radius:26px;padding:10px;' +
+    'box-shadow:0 18px 44px rgba(0,0,0,.5)}' +
+    '.phone-top{height:14px;display:flex;justify-content:center;align-items:center}' +
+    '.notch{width:46px;height:5px;border-radius:4px;background:rgba(255,255,255,.18)}' +
+    '.phone-screen{margin-top:8px;height:280px;border-radius:16px;padding:18px 14px;' +
+    'background:linear-gradient(160deg,rgba(124,77,255,.22),rgba(255,77,157,.18));' +
+    'display:flex;flex-direction:column;align-items:center;text-align:center;justify-content:center;gap:10px}' +
+    '.phone-ico{font-size:2.4rem}' +
+    '.phone-title{font-weight:800;font-size:1rem;color:#fff}' +
+    '.phone-desc{font-size:.78rem;color:#cfcfe0;line-height:1.5}' +
+    '.phone-bar{margin-top:auto;width:60px;height:5px;border-radius:4px;background:rgba(255,255,255,.35)}' +
+    '@media(max-width:560px){.phone{width:46%}}' +
     '/* comparison */' +
     '.cmp{max-width:720px;margin:0 auto;border:1px solid rgba(255,255,255,.08);border-radius:18px;overflow:hidden}' +
     '.cmp table{width:100%;border-collapse:collapse}' +
@@ -275,7 +340,7 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '@media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;transition:none}.hero::before{animation:none}}' +
     '</style></head><body>' +
     '<nav class="nav"><div class="wrap"><div class="brand">' +
-    '<img src="/api/asset/public/aaa-store-logo.png" width="30" height="30" alt="AAA App Store">AAA App Store</div>' +
+    '<a class="brand" href="/store"><img class="logo" src="/api/asset/public/aaa-store-logo.png" height="34" alt="AAA App Store"></a></div>' +
     '<div class="nav-links">' +
     '<a href="#features">Features</a>' +
     '<a href="#store">App Store</a>' +
@@ -299,6 +364,14 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
       '<div class="qrlabel">Scan with your phone camera to install</div>' : '') +
     '<div class="stats">' + statItems + '</div>' +
     '</div></header>' +
+    // phone mockup showcase
+    '<section class="showcase"><div class="wrap">' +
+    '<div class="phones">' +
+    phoneCard("🤖", "AI Chat", "Talk to the best free models — multi-turn, with image & file understanding.") +
+    phoneCard("🎨", "Image Studio", "Text-to-art, style presets and HD upscale in one tap.") +
+    phoneCard("⬇", "Downloaders", "Paste a link, pick a quality, done. No account needed.") +
+    phoneCard("🎁", "Rewards", "Daily check-in, streaks and referrals that actually pay off.") +
+    '</div></div></section>' +
     '<div class="divider"></div>' +
     // features
     '<section><div class="wrap"><h2 class="reveal">Everything you need</h2>' +
@@ -402,7 +475,7 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     'f &nbsp; <b>Follow Super AI on Facebook</b></a>' +
     '<div class="reveal" style="margin-top:18px">' +
     '<a class="btn primary" style="background:linear-gradient(135deg,#1877F2,#0d5cdb)" ' +
-    'href="https://www.facebook.com/sharer/sharer.php?u=' + encodeURIComponent("https://aaa-ai-bot.aaateam.workers.dev/download") +
+    'href="https://www.facebook.com/sharer/sharer.php?u=' + encodeURIComponent("https://aaa-store.aaateam.workers.dev/store") +
     '" target="_blank" rel="noopener">Share Super AI with friends</a></div></div></section>' +
     '<div class="divider"></div>' +
     // app store
@@ -549,14 +622,61 @@ async function providerKey(env, kvName, secretName) {
   return env[secretName] || "";
 }
 
+// Telegram hard limits we must respect.
+const TG_MSG_MAX = 4096;   // max characters per sendMessage text
+const TG_CAP_MAX = 1024;   // max characters per photo/document caption
+
+/** Send a text message, automatically splitting it into <=4096-char chunks so
+ *  long replies (stats, AI answers, daily reports) are never silently dropped
+ *  by Telegram's length limit. The inline keyboard is only attached to the
+ *  FIRST chunk (Telegram allows at most one reply_markup per message group). */
 async function tgSend(token, chatId, text, extra) {
-  const payload = { chat_id: chatId, text: text, parse_mode: "HTML", disable_web_page_preview: true };
-  if (extra && extra.reply_markup) payload.reply_markup = extra.reply_markup;
-  await fetch(TELEGRAM_API + token + "/sendMessage", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+  if (text == null) text = "";
+  text = String(text);
+  const chunks = [];
+  if (text.length <= TG_MSG_MAX) {
+    chunks.push(text);
+  } else {
+    // Split on newlines where possible to keep lines intact.
+    let rest = text;
+    while (rest.length > TG_MSG_MAX) {
+      let cut = rest.lastIndexOf("\n", TG_MSG_MAX);
+      if (cut < 200) cut = TG_MSG_MAX; // no good newline break — hard cut
+      chunks.push(rest.slice(0, cut));
+      rest = rest.slice(cut).replace(/^\n/, "");
+    }
+    if (rest) chunks.push(rest);
+  }
+  let last = null;
+  for (let i = 0; i < chunks.length; i++) {
+    const payload = { chat_id: chatId, text: chunks[i], parse_mode: "HTML", disable_web_page_preview: true };
+    if (i === 0 && extra && extra.reply_markup) payload.reply_markup = extra.reply_markup;
+    const resp = await fetch(TELEGRAM_API + token + "/sendMessage", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    last = await resp.json().catch(function () { return null; });
+    if (!last || last.ok !== true) console.error("tgSend FAIL " + (last ? JSON.stringify(last) : resp.status));
+    if (i < chunks.length - 1) await new Promise(function (r) { setTimeout(r, 120); }); // rate-limit safety
+  }
+  return last;
+}
+
+/** Send a base64 JPEG photo (with optional caption) to a chat. Returns ok bool.
+ *  Captions are capped at TG_CAP_MAX (1024) chars — Telegram rejects longer ones. */
+async function tgSendPhoto(token, chatId, b64, caption) {
+  try {
+    let cap = caption ? String(caption) : undefined;
+    if (cap && cap.length > TG_CAP_MAX) cap = cap.slice(0, TG_CAP_MAX - 1) + "…";
+    const res = await tgApi(token, "sendPhoto", {
+      chat_id: chatId,
+      photo: "data:image/jpeg;base64," + b64,
+      caption: cap,
+      parse_mode: "HTML",
+    });
+    return !!res.ok;
+  } catch (e) { return false; }
 }
 
 /** Generic Telegram Bot API call (e.g. answerCallbackQuery, sendDocument). */
@@ -580,7 +700,25 @@ async function postMediaToChannel(env, type, b64, caption) {
     const res = await tgApi(env.ADMIN_BOT_TOKEN, method, {
       chat_id: ch,
       [media]: "data:" + (type === "video" ? "video/mp4" : "image/jpeg") + ";base64," + b64,
-      caption: caption,
+      caption: caption && caption.length > TG_CAP_MAX ? caption.slice(0, TG_CAP_MAX - 1) + "…" : caption,
+      parse_mode: "HTML",
+    });
+    return !!res.ok;
+  } catch (e) { return false; }
+}
+
+/** Post a video/photo to the channel using a remote URL (avoids base64 size
+ *  limits for large generated media). */
+async function postMediaToChannelUrl(env, type, url, caption) {
+  const ch = env.CHANNEL_ID;
+  if (!ch || ch === "REPLACE_WITH_CHANNEL_ID") return false;
+  try {
+    const method = type === "video" ? "sendVideo" : "sendPhoto";
+    const media = type === "video" ? "video" : "photo";
+    const res = await tgApi(env.ADMIN_BOT_TOKEN, method, {
+      chat_id: ch,
+      [media]: url,
+      caption: caption && caption.length > TG_CAP_MAX ? caption.slice(0, TG_CAP_MAX - 1) + "…" : caption,
       parse_mode: "HTML",
     });
     return !!res.ok;
@@ -592,8 +730,9 @@ async function postToChannelText(env, text) {
   const ch = env.CHANNEL_ID;
   if (!ch || ch === "REPLACE_WITH_CHANNEL_ID") return false;
   try {
-    const res = await tgApi(env.ADMIN_BOT_TOKEN, "sendMessage", { chat_id: ch, text: text, parse_mode: "HTML" });
-    return !!res.ok;
+    // Route through tgSend so long channel posts are split (<=4096 chunks).
+    const r = await tgSend(env.ADMIN_BOT_TOKEN, ch, text);
+    return !!(r && r.ok);
   } catch (e) { return false; }
 }
 
@@ -608,6 +747,103 @@ async function postToChannel(text) {
     if (await tgSendSafe(token, channel, text)) return true;
   }
   return false;
+}
+
+/** Post an AI-crafted message to the channel, with optional media. The optional
+ *  `draftFn` lets callers let the AI write the copy first. */
+async function postToChannelAi(text, opts) {
+  opts = opts || {};
+  let body = text;
+  if (opts.aiTopic) {
+    body = await adminAi(
+      "Write an engaging Telegram channel post for our 'Super AI' Android app audience about: " +
+      opts.aiTopic + ". Max 3 sentences, 1-2 emojis, friendly, no hashtags. Output only the post.",
+      "").catch(function () { return text; });
+  }
+  if (opts.media) {
+    return postMediaToChannel(ENV, opts.media.type, opts.media.b64, body);
+  }
+  return postToChannel(body);
+}
+
+/**
+ * Post to the channel WITH auto-generated media:
+ *  1) AI writes the copy (unless `text` already supplied)
+ *  2) an image is generated (pollinations) and posted with the caption
+ *  3) if json2video credits remain, a short promo video is rendered + posted
+ *  4) the post is synced to the channel's latest YouTube video description
+ * Falls back gracefully: text-only if image gen fails; skips video if no credits.
+ */
+async function generateChannelPost(text, opts) {
+  opts = opts || {};
+  let body = text;
+  if (!body && opts.aiTopic) {
+    body = await adminAi(
+      "Write an engaging Telegram channel post for our 'Super AI' Android app audience about: " +
+      opts.aiTopic + ". Max 3 sentences, 1-2 emojis, friendly, no hashtags. Output only the post.",
+      "").catch(function () { return opts.aiTopic; });
+  }
+  if (!body) body = opts.aiTopic || text || "";
+  const caption = body + "\n\n📲 Get the app: https://aaa-store.aaateam.workers.dev/store";
+  const ch = ENV.CHANNEL_ID || DEFAULT_CHANNEL_ID;
+  if (!ch || ch === "REPLACE_WITH_CHANNEL_ID") return false;
+
+  // 1) Image: try KIE.AI (gpt-image-2) first, fall back to Pollinations.
+  let posted = false;
+  try {
+    const imgPrompt = (opts.imagePrompt || ("Super AI app, " + (opts.aiTopic || body) + ", neon purple and pink gradient, modern flat illustration, 4k, no text"));
+    let imgBuf = await generateImageKie(imgPrompt, ENV);
+    if (!imgBuf) {
+      const imgResp = await fetch(pollinationsUrl(imgPrompt, { width: 1024, height: 1024 }));
+      if (imgResp.ok) imgBuf = await imgResp.arrayBuffer();
+    }
+    if (imgBuf && imgBuf.byteLength > 1000) {
+      const form = new FormData();
+      form.append("chat_id", String(ch));
+      form.append("caption", caption);
+      form.append("photo", new Blob([imgBuf], { type: "image/png" }), "aaa_post.png");
+      const token = ENV.FREE_AI_BOT_TOKEN || ENV.ADMIN_BOT_TOKEN;
+      const r = await fetch(TELEGRAM_API + token + "/sendPhoto", { method: "POST", body: form });
+      const j = await r.json().catch(function () { return {}; });
+      posted = !!j.ok;
+    }
+  } catch (e) {}
+  if (!posted) posted = await postToChannel(caption); // text-only fallback
+
+  // 2) Video: try KIE.AI (grok-imagine) → Shotstack (free sandbox) → Pollinations/json2video.
+  //    Generate once, reuse for both the Telegram channel and the YouTube upload.
+  let videoPosted = false;
+  let vbuf = null;
+  try {
+    vbuf = await generateVideoKie(body, ENV);
+    if (!vbuf) vbuf = await generateVideoShotstack(body, ENV, false);
+    if (!vbuf) vbuf = await generatePromoVideo(body, ENV);
+    if (vbuf) {
+      const form = new FormData();
+      form.append("chat_id", String(ch));
+      form.append("caption", caption);
+      form.append("video", new Blob([vbuf], { type: "video/mp4" }), "aaa_post.mp4");
+      const token = ENV.FREE_AI_BOT_TOKEN || ENV.ADMIN_BOT_TOKEN;
+      const r = await fetch(TELEGRAM_API + token + "/sendVideo", { method: "POST", body: form });
+      const j = await r.json().catch(function () { return {}; });
+      videoPosted = !!j.ok;
+    }
+  } catch (e) {}
+
+  // 3) YouTube: upload the generated video as a NEW YouTube video (real post),
+  //    falling back to editing the latest video's description if no video.
+  let ytPosted = false;
+  try {
+    if (vbuf) {
+      ytPosted = await uploadVideoToYouTube(vbuf, "Super AI — " + (opts.aiTopic || body).slice(0, 60),
+        body + "\n\nGet the app: https://aaa-store.aaateam.workers.dev/store", ENV);
+    } else {
+      ytPosted = await postToYouTube(caption, ENV);
+    }
+  } catch (e) {}
+  if (ENV.AAA_KV) { try { await ENV.AAA_KV.put("last_channel_post", JSON.stringify({ posted: posted, videoPosted: videoPosted, ytPosted: ytPosted, at: Date.now() })); } catch (x) {} }
+
+  return { posted: posted, videoPosted: videoPosted, ytPosted: ytPosted };
 }
 
 /** Post to the owner's YouTube. Community-tab posts are not available to normal
@@ -659,6 +895,19 @@ async function uploadVideoToYouTube(videoBuf, title, description, env) {
   if (!refresh || !videoBuf) return false;
   const accessToken = await googleAccessToken(env, refresh);
   if (!accessToken) return false;
+  // Resolve a source URL to a stream when given a string (avoids loading the
+  // whole video into worker memory for large clips).
+  let body, length, contentType = "video/mp4";
+  if (typeof videoBuf === "string") {
+    const r = await fetch(videoBuf);
+    if (!r.ok) return false;
+    body = r.body;
+    length = Number(r.headers.get("content-length") || 0) || undefined;
+    contentType = r.headers.get("content-type") || "video/mp4";
+  } else {
+    body = videoBuf;
+    length = videoBuf.byteLength;
+  }
   try {
     const init = await fetch(
       "https://www.googleapis.com/upload/youtube/v3/videos?part=snippet,status&uploadType=resumable",
@@ -667,22 +916,32 @@ async function uploadVideoToYouTube(videoBuf, title, description, env) {
         headers: {
           Authorization: "Bearer " + accessToken,
           "Content-Type": "application/json; charset=UTF-8",
-          "X-Upload-Content-Type": "video/mp4",
-          "X-Upload-Content-Length": String(videoBuf.byteLength),
+          "X-Upload-Content-Type": contentType,
+          "X-Upload-Content-Length": String(length),
         },
         body: JSON.stringify({
           snippet: { title: title, description: description, categoryId: "22" },
           status: { privacyStatus: "public" },
         }),
       });
+    if (!init.ok) {
+      const err = await init.text().catch(function () { return ""; });
+      console.error("YT init failed: " + init.status + " " + err.slice(0, 300));
+      return false;
+    }
     const uploadUrl = init.headers.get("location");
     if (!uploadUrl) return false;
     const up = await fetch(uploadUrl, {
       method: "PUT",
-      headers: { "Content-Type": "video/mp4", "Content-Length": String(videoBuf.byteLength) },
-      body: videoBuf,
+      headers: { "Content-Type": contentType, "Content-Length": String(length) },
+      body: body,
     });
-    return up.ok || up.status === 201;
+    if (!up.ok && up.status !== 201) {
+      const err = await up.text().catch(function () { return ""; });
+      console.error("YT upload failed: " + up.status + " " + err.slice(0, 300));
+      return false;
+    }
+    return true;
   } catch (e) { return false; }
 }
 
@@ -750,16 +1009,19 @@ async function verifyFirebaseToken(env, idToken) {
 async function mirrorFirebaseUser(env, idToken) {
   const fb = await verifyFirebaseToken(env, idToken);
   if (!fb) return { ok: false, error: "invalid firebase token" };
+  // Canonical uid is the raw Firebase uid — used identically in D1 (authoritative)
+  // and Supabase (mirror) so the two stores stay in sync (no split-brain rows).
+  const uid = fb.uid;
   // 1) Ensure a Supabase row exists for this Firebase uid (browseable mirror).
   const mirrored = await supabaseUpsert(env, "users", {
-    uid: "fb:" + fb.uid,
+    uid: uid,
     email: fb.email,
     display_name: fb.displayName,
     points: 0,
   }, "uid");
   // 2) Ensure a D1 wallet row exists (authoritative points store).
-  const d1 = await ensureWalletD1(env, fb.uid);
-  return { ok: true, uid: fb.uid, email: fb.email, supabase: mirrored, d1: d1 };
+  const d1 = await ensureWalletD1(env, uid);
+  return { ok: true, uid: uid, email: fb.email, supabase: mirrored, d1: d1 };
 }
 
 /** Fetch recent Crashlytics issues for the app (real Firebase data). */
@@ -778,6 +1040,19 @@ async function crashlyticsIssues(env, limit) {
 /** Generate a short promo video via json2video.com and return the MP4 as a buffer.
  *  Two-step: POST /v2/movies -> poll /v2/movies?project=ID -> download MP4. */
 async function generatePromoVideo(text, env) {
+  // Primary: Pollinations video API (free, no credits) — generates a short
+  // clip from the prompt. Falls back to the credit-based json2video if set.
+  const prompt = "Cinematic promo for 'Super AI' app: " + text.replace(/<[^>]+>/g, "").slice(0, 200) +
+    ". Neon purple and pink, smooth motion, modern, no text overlay.";
+  try {
+    const url = "https://pollinations.ai/vid?prompt=" + encodeURIComponent(prompt) + "&model=turbo&nologo=true&reduce=2";
+    const vid = await fetch(url);
+    if (vid.ok) {
+      const buf = await vid.arrayBuffer();
+      if (buf && buf.byteLength > 1000) return buf;
+    }
+  } catch (e) {}
+  // Fallback: json2video (credit-based) if a key is configured.
   const key = env.JSON2VIDEO_KEY || "";
   if (!key) return null;
   try {
@@ -805,9 +1080,9 @@ async function generatePromoVideo(text, env) {
       if (m.status === "done" && m.url) { url = m.url; break; }
     }
     if (!url) return null;
-    const vid = await fetch(url);
-    if (!vid.ok) return null;
-    return await vid.arrayBuffer();
+    const v = await fetch(url);
+    if (!v.ok) return null;
+    return await v.arrayBuffer();
   } catch (e) { return null; }
 }
 
@@ -823,15 +1098,12 @@ async function tgAction(token, chatId, action) {
 }
 
 /** Like tgSend but returns whether Telegram accepted the message. */
+/** Safe variant of tgSend that swallows errors and returns a bool (used in
+ *  loops like broadcast). Routes through tgSend so long messages are split. */
 async function tgSendSafe(token, chatId, text) {
   try {
-    const r = await fetch(TELEGRAM_API + token + "/sendMessage", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text: text, parse_mode: "HTML", disable_web_page_preview: true }),
-    });
-    const j = await r.json();
-    return !!j.ok;
+    const j = await tgSend(token, chatId, text);
+    return !!(j && j.ok);
   } catch (e) { return false; }
 }
 
@@ -1023,17 +1295,127 @@ async function notifyAdmin(payload) {
   const chatId = ENV.ADMIN_CHAT_ID;
   if (!token || !chatId || chatId === "REPLACE_WITH_ADMIN_CHAT_ID") return false;
   try {
-    await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: "🔑 <b>New API key submission</b>\nProvider: " + htmlEscape(payload.provider || "?") +
-              "\nUser: " + htmlEscape(payload.userTag || "unknown") +
-              "\nKey: <code>" + htmlEscape(payload.key || "") + "</code>",
-        parse_mode: "HTML",
-      }),
-    });
+    const text = "🔑 <b>New API key submission</b>\nProvider: " + htmlEscape(payload.provider || "?") +
+          "\nUser: " + htmlEscape(payload.userTag || "unknown") +
+          "\nKey: <code>" + htmlEscape(payload.key || "") + "</code>";
+    await tgSend(token, chatId, text);
+    // Mirror to the private admin channel (Info Received log).
+    notifyAdminChannel(ENV, {
+      "Type": "📣 Key Submission",
+      "Channel": "AAA AI APP ADMIN",
+      "Name": payload.provider || "?",
+      "ID": payload.userTag || "unknown",
+    }).catch(function () {});
+    return true;
+  } catch (e) { return false; }
+}
+
+/** Post a structured "Info Received" notice to the private admin channel
+ *  (AAA AI APP ADMIN, -1004241419377). Only admins see this. */async function notifyAdminChannel(env, fields) {
+  const ch = env.ADMIN_CHANNEL_ID;
+  if (!ch || ch === "REPLACE_WITH_ADMIN_CHANNEL_ID") return false;
+  const token = env.ADMIN_BOT_TOKEN;
+  if (!token) return false;
+  const lines = Object.keys(fields).map(function (k) {
+    return "• <b>" + htmlEscape(k) + "</b>: " + htmlEscape(String(fields[k]));
+  }).join("\n");
+  try {
+    await tgSend(token, ch, "✅ <b>Info Received</b>\n" + lines);
+    return true;
+  } catch (e) { return false; }
+}
+
+// ---- Self-improving AI: a learning memory stored in KV. Every successful
+// generation (video/image) is recorded as an example; every failure records a
+// negative example. The ops AI and the generators consult these to pick the
+// best provider, auto-retry the next-best option, and "teach" sibling systems.
+
+const LEARN_PREFIX = "learn_";
+const LEARN_LIMIT = 200; // keep the most recent N examples
+
+/** Record one learning example. `type` = "video"|"image"|"teach"; `data` is a
+ *  plain object (prompt/provider/url/ok/notes). */
+async function recordLearning(env, type, data) {
+  try {
+    const kv = env.AAA_KV; if (!kv) return;
+    const listRaw = await kv.get("learn_index");
+    let list = listRaw ? JSON.parse(listRaw) : [];
+    const entry = { t: Date.now(), type: type, ...(data || {}) };
+    list.push(entry);
+    if (list.length > LEARN_LIMIT) list = list.slice(list.length - LEARN_LIMIT);
+    await kv.put("learn_index", JSON.stringify(list));
+    // Count successes/failures per provider for routing.
+    if (data && data.provider) {
+      const pkey = LEARN_PREFIX + "prov_" + String(data.provider).replace(/[^a-z0-9]/gi, "_");
+      const prev = JSON.parse((await kv.get(pkey)) || "{\"ok\":0,\"fail\":0}");
+      if (data.ok === false) prev.fail++; else prev.ok++;
+      await kv.put(pkey, JSON.stringify(prev));
+    }
+  } catch (e) {}
+}
+
+/** Return recent learnings (most recent first), optionally filtered by type. */
+async function getLearnings(env, type, limit) {
+  try {
+    const kv = env.AAA_KV; if (!kv) return [];
+    const list = JSON.parse((await kv.get("learn_index")) || "[]");
+    const filt = type ? list.filter((e) => e.type === type) : list;
+    return filt.reverse().slice(0, limit || 20);
+  } catch (e) { return []; }
+}
+
+/** Provider success-rate summary for routing + self-improvement reporting. */
+async function getProviderStats(env) {
+  try {
+    const kv = env.AAA_KV; if (!kv) return {};
+    const out = {};
+    for (const p of ["kie", "shotstack", "promo", "json2video", "tensor", "pollinations"]) {
+      const v = JSON.parse((await kv.get(LEARN_PREFIX + "prov_" + p)) || "null");
+      if (v) out[p] = v;
+    }
+    return out;
+  } catch (e) { return {}; }
+}
+
+// ---- Open-source knowledge base: curated .md docs (docs/opensource/) are
+// loaded into KV at deploy time (key "kb_corpus"). The ops AI retrieves relevant
+// snippets to improve its own answers and to advise sibling systems.
+
+/** Return a relevant slice of the open-source knowledge corpus for a query.
+ *  Lightweight keyword match — returns the best-matching sections (capped). */
+async function kbContext(env, query) {
+  try {
+    const kv = env.AAA_KV; if (!kv) return "";
+    const corpus = await kv.get("kb_corpus");
+    if (!corpus) return "";
+    const q = (query || "").toLowerCase().split(/\W+/).filter((w) => w.length > 3);
+    if (!q.length) return corpus.slice(0, 1500);
+    const chunks = corpus.split(/\n#{1,3} /).filter((c) => c.length > 40);
+    const scored = chunks.map((c) => {
+      const lc = c.toLowerCase();
+      let s = 0; for (const w of q) if (lc.indexOf(w) >= 0) s++;
+      return { c, s };
+    }).filter((x) => x.s > 0).sort((a, b) => b.s - a.s);
+    const best = scored.slice(0, 6).map((x) => x.c).join("\n\n");
+    return (best || corpus.slice(0, 1500)).slice(0, 4000);
+  } catch (e) { return ""; }
+}
+
+/** Post a structured "Info Received" update to the private admin channel
+ *  (AAA AI APP ADMIN, id -1004241419377). Admin-only, never public. */
+export async function adminChannelNotify(env, type, fields) {
+  const ch = env.ADMIN_CHANNEL_ID;
+  if (!ch || ch === "REPLACE_WITH_ADMIN_CHANNEL_ID") return false;
+  const token = env.ADMIN_BOT_TOKEN;
+  if (!token) return false;
+  let text = "✅ <b>Info Received</b>\n📋 Type: " + htmlEscape(type || "Update");
+  if (fields) {
+    for (const k of Object.keys(fields)) {
+      text += "\n• " + htmlEscape(k) + ": " + htmlEscape(String(fields[k]));
+    }
+  }
+  try {
+    await tgSend(token, ch, text);
     return true;
   } catch (e) { return false; }
 }
@@ -1100,6 +1482,162 @@ function pollinationsUrl(prompt, opts) {
   return "https://image.pollinations.ai/prompt/" + p + "?width=" + w + "&height=" + h + "&nologo=true&model=flux";
 }
 
+const KIE_BASE = "https://api.kie.ai";
+
+/** Generate an image via KIE.AI (gpt-image-2). Returns an ArrayBuffer, or null
+ *  on any failure. Async task model: createTask -> poll recordInfo. */
+async function generateImageKie(prompt, env) {
+  const key = await providerKey(env, "kie", "KIE_API_KEY");
+  if (!key) return null;
+  try {
+    const sub = await fetch(KIE_BASE + "/api/v1/jobs/createTask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
+      body: JSON.stringify({
+        model: "gpt-image-2-text-to-image",
+        input: { prompt: prompt.slice(0, 1000), aspect_ratio: "1:1" },
+      }),
+    }).then((r) => r.json());
+    if (!sub || sub.code !== 200 || !sub.data || !sub.data.taskId) return null;
+    const taskId = sub.data.taskId;
+    for (let i = 0; i < 24; i++) {
+      await new Promise((r) => setTimeout(r, 4000));
+      const info = await fetch(KIE_BASE + "/api/v1/jobs/recordInfo?taskId=" + taskId, {
+        headers: { Authorization: "Bearer " + key },
+      }).then((r) => r.json());
+      const st = info && info.data && info.data.state;
+      if (st === "success" || st === "fail") {
+        if (st === "success") {
+          const rj = info.data.resultJson ? JSON.parse(info.data.resultJson) : {};
+          const url = (rj.resultUrls && rj.resultUrls[0]) || null;
+          if (url) {
+            const img = await fetch(url);
+            if (img.ok) return await img.arrayBuffer();
+          }
+        }
+        return null;
+      }
+    }
+    return null;
+  } catch (e) { return null; }
+}
+
+/** Generate a short promo video via KIE.AI (grok-imagine/text-to-video).
+ *  Returns an ArrayBuffer, or null on failure. */
+async function generateVideoKie(prompt, env) {
+  const key = await providerKey(env, "kie", "KIE_API_KEY");
+  if (!key) return null;
+  try {
+    const sub = await fetch(KIE_BASE + "/api/v1/jobs/createTask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
+      body: JSON.stringify({
+        model: "grok-imagine/text-to-video",
+        input: { prompt: prompt.slice(0, 1000), aspect_ratio: "16:9" },
+      }),
+    }).then((r) => r.json());
+    if (!sub || sub.code !== 200 || !sub.data || !sub.data.taskId) return null;
+    const taskId = sub.data.taskId;
+    for (let i = 0; i < 30; i++) {
+      await new Promise((r) => setTimeout(r, 5000));
+      const info = await fetch(KIE_BASE + "/api/v1/jobs/recordInfo?taskId=" + taskId, {
+        headers: { Authorization: "Bearer " + key },
+      }).then((r) => r.json());
+      const st = info && info.data && info.data.state;
+      if (st === "success" || st === "fail") {
+        if (st === "success") {
+          const rj = info.data.resultJson ? JSON.parse(info.data.resultJson) : {};
+          const url = (rj.resultUrls && rj.resultUrls[0]) || null;
+          if (url) {
+            const vid = await fetch(url);
+            if (vid.ok) return await vid.arrayBuffer();
+          }
+        }
+        return null;
+      }
+    }
+    return null;
+  } catch (e) { return null; }
+}
+
+/** Generate a promo video via Shotstack (sandbox stage = free, watermarked;
+ *  production = paid, no watermark). Returns an ArrayBuffer, or null on failure.
+ *  Builds a real video: 2 AI-generated images (Pollinations) fetched in-worker,
+ *  stored to R2, and served via the public /api/asset route as Ken-Burns image
+ *  clips, plus a "Super AI" title overlay at the end. */
+async function generateVideoShotstack(prompt, env, useProd) {
+  const key = await providerKey(env, "shotstack", "SHOTSTACK_KEY");
+  if (!key) return null;
+  const base = useProd ? "https://api.shotstack.io/edit/render" : "https://api.shotstack.io/edit/stage/render";
+  const safe = prompt.replace(/[<>&"]/g, "").slice(0, 80);
+  const origin = (env.PUBLIC_ORIGIN || "https://aaa-ai-bot.aaateam.workers.dev").replace(/\/$/, "");
+  // Generate 2 AI images from the prompt (free, Pollinations), store to R2, get a
+  // public URL Shotstack's renderer can fetch (Pollinations' own URL 302-redirects
+  // and breaks Shotstack's fetcher).
+  const imgPrompts = [
+    "Cinematic " + safe + ", neon purple and pink, futuristic AI, glowing, 16:9, high detail",
+    safe + " smart assistant app, modern glass UI, holographic, neon, 16:9, high detail",
+  ];
+  const imageUrls = [];
+  for (let i = 0; i < imgPrompts.length; i++) {
+    try {
+      const u = "https://image.pollinations.ai/prompt/" + encodeURIComponent(imgPrompts[i]) + "?width=1280&height=720&nologo=true";
+      const r = await fetch(u);
+      if (r.ok) {
+        const ct = r.headers.get("content-type") || "";
+        if (ct.indexOf("image") >= 0) {
+          const buf = await r.arrayBuffer();
+          const k = "temp/shotstack_" + Date.now() + "_" + i + ".jpg";
+          if (env.aaa_assets) await env.aaa_assets.put(k, buf, { httpMetadata: { contentType: "image/jpeg" } });
+          imageUrls.push(origin + "/api/asset/" + k);
+        }
+      }
+    } catch (e) {}
+  }
+  const clips = [];
+  let t = 0;
+  if (imageUrls.length) {
+    for (const src of imageUrls) {
+      clips.push({ asset: { type: "image", src: src }, start: t, length: 3, effect: "zoomIn", transition: { in: "fade" } });
+      t += 3;
+    }
+  } else {
+    clips.push({ asset: { type: "title", text: "Super AI", style: "minimal" }, start: 0, length: 3 });
+    t = 3;
+  }
+  clips.push({ asset: { type: "title", text: "Super AI", style: "minimal" }, start: t, length: 3 });
+  const payload = {
+    timeline: { tracks: [{ clips: clips }] },
+    output: { format: "mp4", resolution: "sd" },
+  };
+  try {
+    const sub = await fetch(base, {
+      method: "POST",
+      headers: { "x-api-key": key, "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).then((r) => r.json());
+    console.log("[shotstack] submit:", JSON.stringify(sub).slice(0, 120));
+    const id = sub && sub.response && sub.response.id;
+    if (!id) return null;
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 4000));
+      const info = await fetch(base + "/" + id, { headers: { "x-api-key": key } }).then((r) => r.json());
+      const st = info && info.response && info.response.status;
+      if (st === "done" || st === "failed") {
+        if (st === "done") {
+          const url = info.response.url;
+          if (url) {
+            const vid = await fetch(url);
+            if (vid.ok) return { buf: await vid.arrayBuffer(), url: url };
+          }
+        }
+        return null;
+      }
+    }
+    return null;
+  } catch (e) { return null; }
+}
+
 /** DuckDuckGo HTML scrape -> top result snippets. */
 async function searchDDG(q) {
   try {
@@ -1155,8 +1693,9 @@ async function handleFreeAi(update) {
   const from = msg.from || { id: chatId };
   const userId = String(from.id);
   const text = msg.text.trim();
-  if (text.startsWith("/start")) {
-    const arg = text.slice("/start".length).trim();
+  const cmd = text.split(/\s+/)[0].toLowerCase().split("@")[0];
+  if (cmd === "/start") {
+    const arg = text.slice(text.indexOf("/start") + "/start".length).trim();
     if (arg.startsWith("ref_")) {
       const referrerId = arg.slice("ref_".length);
       const credited = await creditReferral(referrerId, from.id);
@@ -1171,13 +1710,20 @@ async function handleFreeAi(update) {
       "👋 <b>Hi! I'm the Super AI companion bot.</b>\n\n" +
       "🤖 <b>AI chat, images, downloaders & the creative studio now live inside the Super AI app</b> — " +
       "the Telegram bot no longer answers AI questions.\n\n" +
-      "📲 <b>Get the app (100% free):</b> https://aaa-ai-bot.aaateam.workers.dev/app.apk\n" +
+      "📲 <b>Get the app (100% free):</b> https://aaa-store.aaateam.workers.dev/store\n" +
       "🌐 Or browse our <b>App Store</b>: https://aaa-store.aaateam.workers.dev/store\n\n" +
       "Install the app to start using AI right away.",
       { reply_markup: { inline_keyboard: [[
-        { text: "📲 Download Super AI", url: "https://aaa-ai-bot.aaateam.workers.dev/app.apk" },
+        { text: "📲 Download Super AI", url: "https://aaa-store.aaateam.workers.dev/store" },
         { text: "🛍 App Store", url: "https://aaa-store.aaateam.workers.dev/store" },
       ]] } });
+    return;
+  }
+  if (cmd === "/help" || cmd === "/about") {
+    await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId,
+      "🤖 <b>AAA Free AI — companion bot</b>\n\n" +
+      "All AI features (chat, image, video, downloaders, studio) live in the Super AI app.\n" +
+      "📲 Download: https://aaa-store.aaateam.workers.dev/store");
     return;
   }
   // Any non-command message: AI is app-only — redirect to the app.
@@ -1185,9 +1731,9 @@ async function handleFreeAi(update) {
     "🤖 <b>AI is in the app, not the bot.</b>\n\n" +
     "The free Telegram bot can't answer AI questions — open the Super AI app to chat, " +
     "generate images, use downloaders and the creative studio.\n\n" +
-    "📲 Download: https://aaa-ai-bot.aaateam.workers.dev/app.apk",
+    "📲 Download: https://aaa-store.aaateam.workers.dev/store",
     { reply_markup: { inline_keyboard: [[
-      { text: "📲 Get Super AI (free)", url: "https://aaa-ai-bot.aaateam.workers.dev/app.apk" },
+      { text: "📲 Get Super AI (free)", url: "https://aaa-store.aaateam.workers.dev/store" },
     ]] } });
 }
 
@@ -1284,62 +1830,496 @@ async function handleLogin(update) {
 }
 
 /** Send the colorful, full-grid admin menu (inline keyboard).
- *  Button labels are human-friendly (no slash commands shown). The actual
- *  command is hidden in callback_data so the panel looks clean. */
+ *  The whole console is tap-driven — no slash commands needed. Button labels
+ *  are human-friendly; the action is hidden in callback_data. */
 async function sendAdminMenu(chatId) {
   const b = (label, data) => ({ text: label, callback_data: data });
   const GRID = {
     inline_keyboard: [
-      [b("🎁 Promo", "/promo"), b("🤖 Auto Post", "/autopost"), b("📊 Report", "/report")],
-      [b("💬 Admin AI", "/ai"), b("📈 Credits", "/credits"), b("🗄 SQL", "/sql")],
-      [b("🔗 YouTube", "/ytconnect"), b("📺 YT Stats", "/ytstats"), b("🔑 Swap Key", "/setkey")],
-      [b("📣 Broadcast", "/broadcast"), b("👥 Stats", "/stats"), b("🎟 Keys", "/keys")],
-      [b("⭐ Grant Me", "/grantme"), b("🏆 Grant User", "/grant"), b("➕ Add Admin", "/adminadd")],
-      [b("☁️ Cloudflare", "/cf"), b("🔐 Secrets", "/secrets"), b("🩺 Status", "/status")],
-      [b("🐞 Crashes", "/crashlog"), b("📦 Version", "/version"), b("🛒 Store DB", "/d1")],
-      [b("🗄 KV", "/kv"), b("🧹 Cleanup", "/cleanup"), b("📦 R2", "/r2")],
-      [b("🎨 Image", "/img"), b("🎬 Video", "/video"), b("⚙️ Config", "/config")],
-      [b("🔥 Firebase", "/firebase"), b("📣 Channel", "/channel"), b("🏠 Menu", "/menu")],
-      [b("🔥 Crashlytics", "/crashlytics"), b("🐞 App Crashes", "/crashlog"), b("⚙️ Config", "/config")],
+      [b("📊 Stats", "stats"), b("🩺 Status", "status"), b("📋 Review", "review")],
+      [b("📣 Broadcast", "bc"), b("📢 Channel", "ch"), b("🔄 Sync", "sync")],
+      [b("🐞 Crashes", "crashlog"), b("🧹 Cleanup", "cleanup"), b("🤖 Ask AI", "ai")],
+      [b("🎨 Image", "img"), b("🎬 Video", "vid"), b("⬆️ Upload YT", "ytupload")],
+      [b("🔑 API Key", "sk"), b("🔍 Key Status", "keys"), b("📊 Report", "report")],
+      [b("🤖 Auto Post", "autopost"), b("🎟 Promo", "promo"), b("🏠 Menu", "menu")],
+      [b("🧠 Teach AI", "teach"), b("📚 Learnings", "learnings"), b("🤖 Ask AI", "ai")],
     ],
   };
   const head =
     "🛡 <b>Super AI — Admin Console</b>\n" +
-    "<i>Tap a tile. Everything is one tap away.</i>\n\n" +
-    "🟣 Growth · 🔵 Content · 🟠 Media · 🟢 Users · ⭐ Access · ☁️ Cloudflare";
+    "<i>Tap a tile to do it. Or just type what you want and the AI handles it (e.g. \"post our new feature to the channel\", \"give tg_123 500 credits\", \"set kie key to …\").</i>";
   await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, head, { reply_markup: GRID });
+}
+
+// Tap-driven actions. Each tile either runs directly or asks the admin for the
+// needed input (captured via a one-shot "await_<chatId>" flag in KV).
+const PROVIDERS = ["kie", "shotstack", "json2video", "hf", "gemini", "groq", "tensor", "youtube", "pollinations", "kiehmac"];
+
+async function adminPrompt(chatId, kind, question) {
+  try { await ENV.AAA_KV.put("await_" + chatId, kind, { expirationTtl: 300 }); } catch (e) {}
+  await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, question);
+}
+
+// Show the provider picker when "🔑 API Key" is tapped.
+async function sendProviderPicker(chatId) {
+  const btns = PROVIDERS.map(function (p) { return { text: p, callback_data: "sk:" + p }; });
+  // 2 per row
+  const rows = [];
+  for (let i = 0; i < btns.length; i += 2) rows.push(btns.slice(i, i + 2));
+  rows.push([{ text: "🔙 Back", callback_data: "menu" }]);
+  await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🔑 <b>Which provider key?</b>", { reply_markup: { inline_keyboard: rows } });
+}
+
+// Two-step key entry: after a provider is picked, ask for the value.
+async function adminPromptKey(chatId, provider) {
+  const what = provider === "youtube" ? "OAuth refresh token" : "API key";
+  try { await ENV.AAA_KV.put("await_" + chatId, "sk:" + provider, { expirationTtl: 300 }); } catch (e) {}
+  await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🔑 <b>" + provider + "</b> — paste the " + what + " (reply to this message):");
+}
+
+// ---- AI action router -------------------------------------------------------
+// The admin console is command-light by design: the owner just talks to it in
+// plain language and the AI decides which action to run. This classifier maps a
+// free-text message to a structured intent, then runAdminAction executes it
+// using the existing helpers. If nothing actionable is detected, it falls back
+// to a normal AI chat answer.
+
+const ADMIN_ACTIONS = ["stats", "status", "review", "apps", "broadcast", "channel", "sync", "version", "crashlog", "report", "credit", "cleanup", "setkey", "keys", "chat", "ai", "start", "menu", "help", "img", "video", "promo", "promostats", "autopost", "credits", "setpoints", "grant", "grantme", "supabase", "yt", "ytconnect", "ytstats", "ytupdate", "crashlytics", "cf", "config", "secrets", "r2", "d1", "sql", "kv", "firebase", "adminadd", "adminrm", "admins", "store", "setlogo", "login", "teach", "learnings"];
+
+/** Master reference of every admin command: how to call it, what it does, and
+ *  the natural-language phrases that should trigger it. Used to build /help and
+ *  to teach the AI intent classifier so ANY command is reachable by chatting. */
+const COMMAND_REFS = [
+  { cmd: "/start", cat: "General", desc: "Open the admin console / menu", nl: "open menu, start, show console" },
+  { cmd: "/help", cat: "General", desc: "List every command + AI examples", nl: "help, what can you do, list commands" },
+  { cmd: "/menu", cat: "General", desc: "Show the tap-tile menu", nl: "menu, show tiles" },
+  { cmd: "/login", cat: "General", desc: "/login <password> — sign in as admin", nl: "login, sign in" },
+  { cmd: "/ai", cat: "General", desc: "/ai <question> — ask the ops AI", nl: "ask, question, what about" },
+  { cmd: "/report", cat: "General", desc: "AI operations report + suggestions", nl: "report, ops report, suggestions" },
+  { cmd: "/stats", cat: "App & Store", desc: "App + store numbers", nl: "stats, numbers, how many users" },
+  { cmd: "/version", cat: "App & Store", desc: "/version <name> <code> <log> — show/set version", nl: "version, app version, update version" },
+  { cmd: "/store", cat: "App & Store", desc: "Store link + current version", nl: "store, store link" },
+  { cmd: "/review", cat: "App & Store", desc: "Pending store submissions (approve/reject)", nl: "review, pending apps, submissions" },
+  { cmd: "/apps", cat: "App & Store", desc: "Recent store apps", nl: "apps, recent apps, store apps" },
+  { cmd: "/promo", cat: "App & Store", desc: "Generate a weekly promo code", nl: "promo, promo code, discount" },
+  { cmd: "/promostats", cat: "App & Store", desc: "Promo redemption stats", nl: "promo stats, redemptions" },
+  { cmd: "/credits", cat: "App & Store", desc: "/credits <uid> <amt> — give a user points", nl: "give credits, add points, credit user" },
+  { cmd: "/setpoints", cat: "App & Store", desc: "/setpoints <uid> <amt> — set a user's points", nl: "set points, set credits" },
+  { cmd: "/grant", cat: "App & Store", desc: "/grant <uid> <days> — grant premium", nl: "grant premium, give premium" },
+  { cmd: "/grantme", cat: "App & Store", desc: "Grant yourself premium (owner)", nl: "grant me premium" },
+  { cmd: "/broadcast", cat: "Users & Growth", desc: "/broadcast <msg> — message all users", nl: "broadcast, tell all users, announce, notify everyone" },
+  { cmd: "/channel", cat: "Users & Growth", desc: "/channel <msg> — post to public channel", nl: "post to channel, channel post, share on channel" },
+  { cmd: "/autopost", cat: "Users & Growth", desc: "AI-written auto channel post", nl: "auto post, auto channel" },
+  { cmd: "/sync", cat: "Users & Growth", desc: "Reconcile D1 → Supabase mirror", nl: "sync, reconcile, database sync" },
+  { cmd: "/supabase", cat: "Users & Growth", desc: "Supabase mirror status", nl: "supabase, mirror status" },
+  { cmd: "/keys", cat: "API Keys", desc: "Show current API key status", nl: "show keys, key status, what keys" },
+  { cmd: "/setkey", cat: "API Keys", desc: "/setkey <provider> <value> — set key live", nl: "set key, change key, update api key" },
+  { cmd: "/yt", cat: "API Keys", desc: "YouTube connection status", nl: "youtube status" },
+  { cmd: "/ytupload", cat: "API Keys", desc: "Upload the last generated video to YouTube", nl: "upload video to youtube, post video to youtube" },
+  { cmd: "/ytconnect", cat: "API Keys", desc: "Begin YouTube OAuth connect", nl: "connect youtube" },
+  { cmd: "/ytstats", cat: "API Keys", desc: "YouTube channel stats", nl: "youtube stats" },
+  { cmd: "/ytupdate", cat: "API Keys", desc: "Update YouTube channel description", nl: "update youtube" },
+  { cmd: "/img", cat: "Content & Media", desc: "/img <prompt> — generate image (KIE→Pollinations)", nl: "generate image, make a picture, draw" },
+  { cmd: "/video", cat: "Content & Media", desc: "/video <prompt> — generate video (KIE→Shotstack→Pollinations)", nl: "generate video, make a clip, render promo" },
+  { cmd: "/teach", cat: "AI Brain", desc: "/teach <topic> | <how> — teach the AI (self-improves)", nl: "teach the ai, remember this, learn this" },
+  { cmd: "/learnings", cat: "AI Brain", desc: "/learnings — view AI memory + provider stats", nl: "learnings, what have you learned, memory" },
+  { cmd: "/crashlog", cat: "System & Health", desc: "App crash reports + AI root-cause", nl: "crashes, crash log, crash reports" },
+  { cmd: "/crashlytics", cat: "System & Health", desc: "Firebase Crashlytics status", nl: "crashlytics, firebase crashes" },
+  { cmd: "/status", cat: "System & Health", desc: "Service health (KV/R2/D1/bots)", nl: "status, health, is it up" },
+  { cmd: "/cleanup", cat: "System & Health", desc: "Prune old data", nl: "cleanup, prune, maintenance" },
+  { cmd: "/cf", cat: "System & Health", desc: "Cloudflare panel info", nl: "cloudflare, cf panel" },
+  { cmd: "/config", cat: "System & Health", desc: "Full Cloudflare configuration", nl: "config, configuration" },
+  { cmd: "/secrets", cat: "System & Health", desc: "View Cloudflare secrets", nl: "secrets, show secrets" },
+  { cmd: "/r2", cat: "System & Health", desc: "/r2 <prefix> — list R2 objects", nl: "r2, list files, storage" },
+  { cmd: "/d1", cat: "System & Health", desc: "/d1 <sql> — run a D1 query", nl: "d1, run sql, query database" },
+  { cmd: "/sql", cat: "System & Health", desc: "/sql <query> — raw SQL on D1", nl: "sql, raw query" },
+  { cmd: "/kv", cat: "System & Health", desc: "/kv <key> — read a KV value", nl: "kv, read kv" },
+  { cmd: "/firebase", cat: "System & Health", desc: "Firebase status", nl: "firebase, auth status" },
+  { cmd: "/adminadd", cat: "Admins", desc: "/adminadd <chatId> — grant admin", nl: "add admin, grant admin" },
+  { cmd: "/adminrm", cat: "Admins", desc: "/adminrm <chatId> — remove admin", nl: "remove admin" },
+  { cmd: "/admins", cat: "Admins", desc: "List admins", nl: "list admins, who is admin" },
+  { cmd: "/setlogo", cat: "App & Store", desc: "Re-apply a saved store logo", nl: "set logo, apply logo" },
+];
+
+/** Build the /help message from COMMAND_REFS, grouped by category. */
+function buildHelp() {
+  const cats = {};
+  for (const r of COMMAND_REFS) { (cats[r.cat] = cats[r.cat] || []).push(r); }
+  let out = "🛡 <b>Super AI — Admin Console · All Commands</b>\n";
+  out += "<i>Tip: you can trigger ANY of these by typing naturally — e.g. \"post our new feature to the channel\", \"tell all users the update is live\", \"give tg_123 500 credits\", \"show me key status\".</i>\n\n";
+  for (const cat of Object.keys(cats)) {
+    out += "🔹 <b>" + cat + "</b>\n";
+    for (const r of cats[cat]) out += "• <code>" + r.cmd + "</code> — " + r.desc + "\n";
+    out += "\n";
+  }
+  out += "Tap a tile in the menu, or just chat with the Admin AI.";
+  return out;
+}
+
+/** Render current provider key status: KV override vs env secret, masked. */
+async function keyStatus(env) {
+  const defs = [
+    ["kie", "KIE_API_KEY"], ["kiehmac", "KIE_HMAC_KEY"], ["json2video", "JSON2VIDEO_KEY"],
+    ["hf", "HF_KEY"], ["gemini", "GEMINI_KEY"], ["groq", "GROQ_KEY"], ["tensor", "TENSOR_ART_KEY"],
+    ["pollinations", "POLLINATIONS_KEY"], ["shotstack", "SHOTSTACK_KEY"], ["youtube", "yt_owner_refresh"],
+  ];
+  const mask = (v) => {
+    if (v == null || v === "") return "∅ unset";
+    const s = String(v);
+    if (s.length <= 8) return s[0] + "••••";
+    return s.slice(0, 4) + "…" + s.slice(-4) + " (" + s.length + ")";
+  };
+  const PING = {
+    gemini: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=",
+    groq: "https://api.groq.com/openai/v1/models",
+    hf: "https://api-inference.huggingface.co/models/google/flan-t5-xxl",
+    json2video: "https://api.json2video.com/v2/movies",
+    kie: "https://api.kie.ai/api/v1/chat/credit",
+    shotstack: "https://api.shotstack.io/edit/stage/render",
+    tensor: "https://ap-east-1.tensorart.cloud/v1/jobs",
+  };
+  const ping = async (name, key) => {
+    const url = PING[name];
+    if (!url || !key) return null;
+    try {
+      const hd = name === "kie" || name === "shotstack"
+        ? { Authorization: "Bearer " + key, "Content-Type": "application/json" }
+        : { Authorization: "Bearer " + key };
+      const r = await fetch(url, { method: "GET", headers: hd, redirect: "manual" });
+      // 401/403 = key present but rejected; 200/4xx(other) = reachable. Either way endpoint is alive.
+      if (r.status === 0 || (r.status >= 200 && r.status < 500) || r.status === 401 || r.status === 403) return "🟢";
+      return "🔴";
+    } catch (e) { return "🔴"; }
+  };
+  let out = "🔑 <b>API Key Status</b>  <code>(🟢 reachable · 🔴 error)</code>\n";
+  out += "<code>provider     env   KV       live</code>\n";
+  for (const [name, sec] of defs) {
+    const kv = env.AAA_KV ? await env.AAA_KV.get("key_" + name) : "";
+    const kvYt = name === "youtube" && env.AAA_KV ? await env.AAA_KV.get("yt_owner_refresh") : "";
+    const override = name === "youtube" ? kvYt : kv;
+    const envSet = env[sec] ? "✅" : "—";
+    const ov = override ? "✅" : "—";
+    const live = override ? (await ping(name, override)) : (env[sec] ? (await ping(name, env[sec])) : "—");
+    out += "• " + name.padEnd(11) + " " + envSet.padEnd(3) + "  " + ov.padEnd(3) + "  " + live + "\n";
+  }
+  out += "\nKV overrides take priority and apply live (no redeploy).\nSet: tap 🔑 API Key tile, or say \"set <provider> key to …\".";
+  return out;
+}
+
+async function classifyIntent(text) {
+  const picks = ADMIN_ACTIONS.map(function (a) { return "- " + a; }).join("\n");
+  const prompt =
+    "You are the intent classifier for an admin Telegram bot that manages the 'Super AI' Android app + store.\n" +
+    "Map the user's message to exactly ONE of these actions:\n" + picks + "\n" +
+    "Each action maps to a Telegram command. Available commands and the natural-language phrases that trigger them:\n" +
+    COMMAND_REFS.map(function (r) { return "- " + r.action + "  (" + r.cmd + "): " + r.nl; }).join("\n") + "\n" +
+    "Rules:\n" +
+    "- 'stats' = show app/store numbers. 'status' = system health (DBs/bots). 'review' = pending store submissions. 'apps' = recent store apps.\n" +
+    "- 'broadcast' = send a message/announcement to ALL app users. Trigger words: 'tell all users', 'announce', 'notify everyone', 'broadcast', 'send to all'. Put the message text in 'arg'.\n" +
+    "- 'channel' = post to the public Telegram channel (auto-generates an image + video). Trigger words: 'post to channel', 'post on channel', 'channel post', 'share on channel'. Put the topic in 'arg'.\n" +
+    "- 'sync' = reconcile databases. 'version' = show/set app version. 'crashlog' = app crashes. 'report' = ops report. 'credit' = give a user points (needs uid+amount). 'cleanup' = maintenance.\n" +
+    "- 'setkey' = ONLY when the user clearly wants to SET/CHANGE a provider API key AND provides BOTH a provider and a value, e.g. 'set the kie key to abc123', 'change json2video key to xyz', 'set shotstack key to …'. Extract provider name (one of: kie, kiehmac, json2video, hf, gemini, groq, tensor, youtube, pollinations, shotstack) and the key value into arg as 'provider value'. If the message does NOT contain an actual key value, choose 'chat' instead.\n" +
+    "- 'keys' = the user wants to VIEW the current API key status/overrides (e.g. 'show keys', 'what keys are set', 'key status').\n" +
+    "- 'img' / 'video' = generate media, and the message contains a real subject/prompt. Put the prompt in 'arg'.\n" +
+    "- 'credits' = give a user points, and the message contains a uid + amount. Extract 'uid amount' into arg. 'grant' = grant premium: extract 'uid days'.\n" +
+    "- 'promo' = generate a promo code. 'autopost' = AI auto channel post.\n" +
+    "- 'chat' = DEFAULT for anything ambiguous, conversational, vague, acknowledging (e.g. 'you do it', 'ok', 'thanks', 'do it'), a question, or not clearly one of the above. When in doubt, choose 'chat'.\n" +
+    "Respond with ONLY valid JSON: {\"action\":\"<one>\",\"arg\":\"<text or empty>\"}. No markdown, no commentary.\n\n" +
+    "USER: " + text + "\nJSON:";
+  const raw = await askAi(prompt, "gemini");
+  if (!raw) return { action: "chat", arg: text };
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (!m) return { action: "chat", arg: text };
+  try {
+    const j = JSON.parse(m[0]);
+    if (ADMIN_ACTIONS.indexOf(j.action) >= 0) return { action: j.action, arg: (j.arg || "").trim() };
+  } catch (e) {}
+  return { action: "chat", arg: text };
+}
+
+async function runAdminAction(chatId, intent, from) {
+  const token = ENV.ADMIN_BOT_TOKEN;
+  const arg = (intent.arg || "").trim();
+  from = from || msg_from_safe();
+  switch (intent.action) {
+    case "stats": {
+      await sendStats(chatId);
+      return true;
+    }
+    case "status": {
+      // Reuse the existing /status block by invoking its logic.
+      await sendStatus(chatId);
+      return true;
+    }
+    case "review": {
+      await sendReview(chatId);
+      return true;
+    }
+    case "apps": {
+      await sendRecentApps(chatId);
+      return true;
+    }
+    case "sync": {
+      await tgSend(token, chatId, "🔄 Reconciling D1 → Supabase mirror…");
+      await doSync();
+      await tgSend(token, chatId, "✅ Sync complete (D1→Supabase).");
+      return true;
+    }
+    case "version": {
+      const cur = (await ENV.AAA_KV.get("app_version_name")) || "?";
+      const code = (await ENV.AAA_KV.get("app_version_code")) || "?";
+      await tgSend(token, chatId, "📦 Current: <b>v" + cur + "</b> (code " + code + ")\nSet with: /version <name> <code> <changelog>");
+      return true;
+    }
+    case "crashlog": {
+      await sendCrashlog(chatId);
+      return true;
+    }
+    case "report": {
+      await tgAction(token, chatId);
+      const stats = await gatherStats(ENV);
+      const ans = await adminAi(
+        "Give a short operations report: health, anything notable/concerning, and 2-3 concrete suggestions to grow usage.",
+        statsBlock(stats));
+      await tgSend(token, chatId, "📊 <b>Admin AI Report</b>\n" + htmlEscape(ans) + "\n\n<code>" + htmlEscape(statsBlock(stats)) + "</code>");
+      return true;
+    }
+    case "cleanup": {
+      await tgSend(token, chatId, "🧹 Running cleanup…");
+      const res = await cleanup(ENV);
+      await tgSend(token, chatId, "✅ Cleanup done:\n• history: " + (res.history_deleted || 0) + "\n• txns: " + (res.transactions_deleted || 0) + "\n• R2 temp: " + (res.r2_deleted || 0));
+      return true;
+    }
+    case "broadcast": {
+      const message = arg || "";
+      if (!message) { await tgSend(token, chatId, "What should I broadcast? e.g. \"broadcast: New v2.3 is out!\""); return true; }
+      await doBroadcast(chatId, message);
+      return true;
+    }
+    case "channel": {
+      const topic = arg || "";
+      if (!topic) { await tgSend(token, chatId, "What should I post to the channel? e.g. \"channel: New AI feature dropped\""); return true; }
+      await tgSend(token, chatId, "🤖 Writing copy + generating image/video for the channel…");
+      const res = await generateChannelPost("", { aiTopic: topic });
+      await tgSend(token, chatId,
+        (res.posted ? "✅ Posted to channel" : "⚠️ Channel post failed (bot must be admin)") +
+        (res.videoPosted ? " · 🎬 video included" : "") +
+        (res.ytPosted ? " · 📺 YouTube synced" : ""));
+      return true;
+    }
+    case "credit": {
+      // Expect "uid amount" in arg.
+      const parts = arg.split(/\s+/);
+      const uid = parts[0]; const amt = parseInt(parts[1], 10);
+      if (!uid || isNaN(amt)) { await tgSend(token, chatId, "Credit who? Send like: \"credit tg_123 500\""); return true; }
+      const r = await addPoints(uid, amt, "admin", ENV);
+      await tgSend(token, chatId, "✅ " + uid + " → " + (r.points ?? "n/a") + " pts");
+      return true;
+    }
+    case "keys": {
+      await tgSend(token, chatId, await keyStatus(ENV));
+      return true;
+    }
+    case "setkey": {
+      const parts = arg.split(/\s+/);
+      const name = (parts[0] || "").toLowerCase();
+      const value = parts.slice(1).join(" ").trim();
+      const allowed = { json2video: "JSON2VIDEO_KEY", kie: "KIE_API_KEY", kiehmac: "KIE_HMAC_KEY", hf: "HF_KEY", gemini: "GEMINI_KEY", groq: "GROQ_KEY", tensor: "TENSOR_ART_KEY", youtube: "yt_owner_refresh", pollinations: "POLLINATIONS_KEY", shotstack: "SHOTSTACK_KEY" };
+      if (!allowed[name] || !value) {
+        await tgSend(token, chatId, "To set a key, say e.g. \"set kie key to <value>\" or use /setkey <kie|json2video|hf|gemini|groq|tensor|youtube|pollinations> <value>");
+        return true;
+      }
+      const kvKey = name === "youtube" ? "yt_owner_refresh" : "key_" + name;
+      await ENV.AAA_KV.put(kvKey, value);
+      await tgSend(token, chatId, "✅ Key <b>" + name + "</b> updated live (KV override). Takes effect immediately on next request.");
+      return true;
+    }
+    default: {
+      // Generic dispatch: map the action back to its Telegram command and run
+      // the existing command handler. This makes EVERY command reachable by
+      // natural language (the AI classifier maps phrases -> actions -> here).
+      const ACTION_TO_CMD = {
+        start: "/start", menu: "/menu", help: "/help", login: "/login", ai: "/ai",
+        stats: "/stats", status: "/status", review: "/review", apps: "/apps",
+        broadcast: "/broadcast", channel: "/channel", sync: "/sync", version: "/version",
+        crashlog: "/crashlog", report: "/report", credit: "/credits", cleanup: "/cleanup",
+        setkey: "/setkey", keys: "/keys", img: "/img", video: "/video", promo: "/promo",
+        promostats: "/promostats", autopost: "/autopost", credits: "/credits",
+        setpoints: "/setpoints", grant: "/grant", grantme: "/grantme", supabase: "/supabase",
+        yt: "/yt", ytconnect: "/ytconnect", ytstats: "/ytstats", ytupdate: "/ytupdate",
+        crashlytics: "/crashlytics", cf: "/cf", config: "/config", secrets: "/secrets",
+        r2: "/r2", d1: "/d1", sql: "/sql", kv: "/kv", firebase: "/firebase",
+        adminadd: "/adminadd", adminrm: "/adminrm", admins: "/admins", store: "/store",
+        setlogo: "/setlogo",
+        teach: "/teach", learnings: "/learnings",
+      };
+      const cmdText = ACTION_TO_CMD[intent.action];
+      if (cmdText) {
+        await handleAdmin({ message: { chat: { id: chatId }, text: cmdText + (arg ? " " + arg : ""), from: from } });
+        return true;
+      }
+      return false; // let caller fall back to chat
+    }
+  }
+}
+
+// The router runs outside a real message context for some actions; provide a
+// minimal safe `from` so downstream handlers that read msg.from don't crash.
+function msg_from_safe() {
+  return { id: 0, is_bot: false, first_name: "Admin", username: "admin" };
+}
+
+// Thin wrappers so the router reuses existing command logic without duplicating.
+async function sendStats(chatId) {
+  // mirror of /stats body
+  let info = "📊 <b>Stats</b>\n";
+  if (ENV.AAA_DB) {
+    const u = await ENV.AAA_DB.prepare("SELECT COUNT(*) c, COALESCE(SUM(points),0) p FROM users").first();
+    info += "App users: " + (u?.c || 0) + "\nTotal points: " + (u?.p || 0) + "\n";
+    const store = await ENV.AAA_DB.prepare(
+      "SELECT COUNT(*) total, SUM(CASE WHEN status='approved' THEN 1 ELSE 0 END) approved, SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) pending, COALESCE(SUM(downloads),0) dl FROM store_apps").first();
+    info += "Store apps: " + (store?.total || 0) + " (" + (store?.approved || 0) + " approved, " + (store?.pending || 0) + " pending)\n";
+    info += "Store downloads: " + (store?.dl || 0) + "\n";
+    const users = await ENV.AAA_DB.prepare("SELECT COUNT(*) c FROM store_users").first();
+    info += "Store users: " + (users?.c || 0) + "\n";
+    const refs = await ENV.AAA_KV.list({ prefix: "refcount:" });
+    let refTotal = 0;
+    for (const k of refs.keys) { try { refTotal += parseInt(await ENV.AAA_KV.get(k.name) || "0", 10); } catch (e) {} }
+    info += "Referred users: " + refTotal + "\n";
+  }
+  const codes = await ENV.AAA_KV.list({ prefix: "login:" });
+  info += "Pending link codes: " + codes.keys.length + "\n";
+  const subs = await ENV.AAA_KV.list({ prefix: "key:" });
+  info += "Key submissions: " + subs.keys.length;
+  const ver = await ENV.AAA_KV.get("app_version_name");
+  if (ver) info += "\nApp version: v" + ver;
+  await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, info);
+}
+async function sendStatus(chatId) {
+  // mirror of /status body
+  const checks = [];
+  let kvOk = false, r2Ok = false, d1Ok = false;
+  try { await ENV.AAA_KV.get("app_version_name"); kvOk = true; } catch (e) {}
+  try { await ENV.aaa_assets.list({ limit: 1 }); r2Ok = true; } catch (e) {}
+  try { await ENV.AAA_DB.prepare("SELECT 1").first(); d1Ok = true; } catch (e) {}
+  checks.push("🗄 KV: " + (kvOk ? "✅" : "❌"));
+  checks.push("📦 R2: " + (r2Ok ? "✅" : "❌"));
+  checks.push("🛢 D1: " + (d1Ok ? "✅" : "❌"));
+  const v = (await ENV.AAA_KV.get("app_version_name")) || "?";
+  const dl = (await ENV.AAA_KV.get("app_downloads")) || "0";
+  let fbOk = false, sbOk = false;
+  try { fbOk = !!(ENV.FIREBASE_SERVICE_ACCOUNT && JSON.parse(ENV.FIREBASE_SERVICE_ACCOUNT).client_email); } catch (e) {}
+  try { sbOk = await supabaseKeepAlive(ENV); } catch (e) {}
+  let d1Users = 0, sbUsers = 0;
+  try { d1Users = (await ENV.AAA_DB.prepare("SELECT COUNT(*) c FROM users").first()).c || 0; } catch (e) {}
+  try {
+    const r = await fetch(ENV.SUPABASE_URL + "/rest/v1/users?select=uid&limit=1", { headers: { apikey: ENV.SUPABASE_SERVICE_ROLE, Authorization: "Bearer " + ENV.SUPABASE_SERVICE_ROLE, Prefer: "count=exact" } });
+    const cr = r.headers.get("content-range");
+    sbUsers = cr ? parseInt(cr.split("/")[1] || "0", 10) || 0 : 0;
+  } catch (e) {}
+  const link = (fbOk && sbOk && d1Users > 0) ? " ✅ linked" : (fbOk && sbOk ? " ⚠️ empty" : " ❌");
+  await tgSend(ENV.ADMIN_BOT_TOKEN, chatId,
+    "🩺 <b>System Status</b>\n" + checks.join("\n") +
+    "\n🔥 Firebase (auth): " + (fbOk ? "✅" : "❌") +
+    "\n🐘 Supabase (mirror): " + (sbOk ? "✅" : "❌") + " — " + sbUsers + " users" +
+    "\n🛢 D1 (authoritative): " + (d1Ok ? "✅" : "❌") + " — " + d1Users + " users" +
+    "\n🔗 Firebase→D1→Supabase:" + link +
+    "\n\n📦 App v" + v + " · ⬇️ " + dl + " downloads");
+}
+async function sendReview(chatId) {
+  if (!ENV.AAA_DB) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Store DB unavailable."); return; }
+  const apps = await ENV.AAA_DB.prepare(
+    "SELECT id, name, category, short_desc, owner_uid, version, package_name FROM store_apps WHERE status = 'pending' ORDER BY submitted_at ASC LIMIT 10").all();
+  const rows = (apps && apps.results) || [];
+  if (!rows.length) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ No apps waiting for review."); return; }
+  for (const a of rows) {
+    const owner = await getStoreUserName(ENV, a.owner_uid);
+    const txt = "📦 <b>" + htmlEscape(a.name) + "</b>\nCategory: " + htmlEscape(a.category) + "\nVersion: " + htmlEscape(a.version || "?") + " · pkg: <code>" + htmlEscape(a.package_name || "?") + "</code>\nBy: " + htmlEscape(owner) + "\n" + (a.short_desc ? htmlEscape(a.short_desc) + "\n" : "") + "ID: <code>" + a.id + "</code>";
+    const kb = { inline_keyboard: [[{ text: "✅ Approve", callback_data: "approve:" + a.id }, { text: "❌ Reject", callback_data: "reject:" + a.id }]] };
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, txt, { reply_markup: kb });
+    const risk = await adminAi(
+      "You are an app-store moderator. Given this pending app, flag ONLY real risks: trademark/brand impersonation, malware/phishing signals, or spam. If safe, reply 'SAFE'. One line, no preamble.",
+      "APP: name=" + (a.name || "") + " | category=" + (a.category || "") + " | desc=" + (a.short_desc || "") + " | pkg=" + (a.package_name || ""));
+    if (risk && !/^\s*safe/i.test(risk.trim())) await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ <b>AI moderation flag:</b> " + htmlEscape(risk.trim()));
+  }
+}
+async function sendRecentApps(chatId) {
+  if (!ENV.AAA_DB) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Store DB unavailable."); return; }
+  const apps = await ENV.AAA_DB.prepare("SELECT id, name, status, downloads, owner_uid FROM store_apps ORDER BY submitted_at DESC LIMIT 12").all();
+  const rows = (apps && apps.results) || [];
+  if (!rows.length) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "No apps yet."); return; }
+  let out = "📱 <b>Recent apps</b>\n";
+  for (const a of rows) out += "• [" + htmlEscape(a.status) + "] " + htmlEscape(a.name) + " — " + (a.downloads || 0) + " dl · by " + htmlEscape(await getStoreUserName(ENV, a.owner_uid)) + "\n";
+  await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, out);
+}
+async function sendCrashlog(chatId) {
+  let idx = [];
+  try { idx = JSON.parse(await ENV.AAA_KV.get("crashlog:index") || "[]"); } catch (e) {}
+  if (!idx.length) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ No crashes captured."); return; }
+  const limit = 5;
+  for (const ts of idx.slice(0, limit)) {
+    const r = await ENV.AAA_KV.get("crashlog:" + ts);
+    if (!r) continue;
+    let rec; try { rec = JSON.parse(r); } catch (e) { continue; }
+    const dev = rec.device || {};
+    const txt = "🐞 <b>Crash</b> " + new Date((rec.ts || ts) * 1).toISOString().slice(0, 19).replace("T", " ") + "\n📱 " + htmlEscape((dev.manufacturer || "?") + " " + (dev.model || "?")) + " (SDK " + (dev.sdk || "?") + ")\n💥 <code>" + htmlEscape((rec.message || "").slice(0, 200)) + "</code>\n🧵 " + htmlEscape(rec.thread || "?") + "\n<pre>" + htmlEscape((rec.stack || "").split("\n").slice(0, 6).join("\n").slice(0, 900)) + "</pre>";
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, txt);
+  }
+  await tgAction(ENV.ADMIN_BOT_TOKEN, chatId);
+  let ctxLines = [];
+  for (const ts of idx.slice(0, Math.min(limit, 8))) {
+    const raw = await ENV.AAA_KV.get("crashlog:" + ts);
+    if (!raw) continue;
+    let rec; try { rec = JSON.parse(raw); } catch (e) { continue; }
+    ctxLines.push("- " + (rec.message || "?").slice(0, 120) + " | " + ((rec.stack || "").split("\n")[1] || "").slice(0, 100));
+  }
+  if (ctxLines.length) {
+    const ans = await adminAi("You are the lead Android engineer. Given these crash signatures, identify likely root cause(s), severity, and 2-3 fix recommendations. Be concise.", "CRASHES:\n" + ctxLines.join("\n"));
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🤖 <b>AI Root-Cause</b>\n" + htmlEscape(ans));
+  }
+}
+async function doSync() {
+  if (!ENV.AAA_DB) return;
+  await supabaseProvision(ENV);
+  const users = await ENV.AAA_DB.prepare("SELECT uid, points, lifetime_earned, premium_until FROM users").all();
+  const rows = (users && users.results) || [];
+  for (const u of rows) {
+    await supabaseUpsert(ENV, "users", { uid: u.uid, points: u.points || 0, lifetime_earned: u.lifetime_earned || 0, premium_until: u.premium_until || 0 }, "uid");
+  }
+}
+async function doBroadcast(chatId, message) {
+  // Collect recipients from app profiles + store users.
+  const ids = new Set();
+  try { const listed = await ENV.AAA_KV.list({ prefix: "profile:" }); for (const k of listed.keys) ids.add(k.name.slice("profile:".length)); } catch (e) {}
+  if (ENV.AAA_DB) { try { const rows = await ENV.AAA_DB.prepare("SELECT DISTINCT tg_chat FROM store_users WHERE tg_chat IS NOT NULL").all(); for (const r of (rows.results || [])) ids.add(String(r.tg_chat)); } catch (e) {} }
+  if (!ids.size) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ No users to broadcast to."); return; }
+  let sent = 0, failed = 0;
+  for (const id of ids) {
+    const ok = await tgSendSafe(ENV.LOGIN_BOT_TOKEN, id, "📣 <b>Super AI</b>\n" + htmlEscape(message));
+    if (ok) sent++; else failed++;
+    if ((sent + failed) % 20 === 0) await new Promise(function (r) { setTimeout(r, 1000); });
+  }
+  await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ Broadcast sent to " + sent + " user(s)" + (failed ? " (" + failed + " unreachable)" : "") + ".");
+  adminChannelNotify(ENV, "Broadcast Sent", { "Recipients": sent + (failed ? " (" + failed + " failed)" : "") }).catch(function () {});
 }
 
 /** Register the Worker's own webhooks on Telegram using the bot tokens it
  *  already holds as secrets. Calling this on deploy guarantees the login/free/
  *  admin bots always deliver updates to this Worker (no manual step needed). */
 async function setupWebhooks(origin) {
-  const base = (origin || (typeof URL !== "undefined" ? "" : "")) || "";
+  // Prefer the configured public origin so webhooks always point at the real
+  // deployed Worker, never at a request's local/empty origin.
+  const base = (ENV && ENV.PUBLIC_ORIGIN) || origin || "";
   const bots = [
     { token: ENV.FREE_AI_BOT_TOKEN, path: "/telegram/free", commands: [{ command: "start", description: "Get the Super AI app (AI is app-only)" }] },
     { token: ENV.LOGIN_BOT_TOKEN, path: "/telegram/login", commands: [{ command: "start", description: "Sign in to the Super AI app" }] },
     { token: ENV.ADMIN_BOT_TOKEN, path: "/telegram/admin", commands: [
-      { command: "help", description: "Show admin commands" },
-      { command: "keys", description: "List API key submissions" },
-      { command: "key", description: "Submissions for one provider" },
-      { command: "stats", description: "Users, points, pending codes" },
-      { command: "setpoints", description: "Adjust a user balance" },
+      { command: "menu", description: "Open the admin control panel (tap tiles)" },
+      { command: "help", description: "List all admin commands" },
+      { command: "login", description: "Authenticate as admin (owner or listed)" },
+      { command: "stats", description: "App + store stats" },
+      { command: "version", description: "Show/set app version" },
       { command: "broadcast", description: "Message all users" },
-      { command: "cf", description: "Cloudflare panel: app version, downloads, crashes" },
-      { command: "crashlog", description: "View captured app crash reports" },
-      { command: "version", description: "Show or set the published app version" },
-      { command: "kv", description: "Read a KV key value" },
-      { command: "cleanup", description: "Run maintenance / prune old data" },
-      { command: "d1", description: "App Store database stats" },
-      { command: "secrets", description: "List all Cloudflare secrets (masked)" },
-      { command: "status", description: "Worker + Cloudflare health check" },
-      { command: "r2", description: "List R2 objects under a prefix" },
-      { command: "img", description: "Generate an image via the Ari AI engine" },
-      { command: "video", description: "Render a promo video via the Ari AI engine" },
-      { command: "config", description: "Show full Cloudflare config (all secrets + resources)" },
-      { command: "firebase", description: "Show Firebase project info + channel" },
-      { command: "crashlytics", description: "Show real Crashlytics crash issues from Firebase" },
-      { command: "channel", description: "Show/posting to the Telegram channel" },
     ] },
   ];
   const out = [];
@@ -1373,6 +2353,32 @@ async function providerHealthLine(env) {
     out.push(n + (ex ? ": EXHAUSTED" : ": ok"));
   }
   return out.join(" · ");
+}
+
+/** Build a list of human-readable warnings for providers that are low on
+ *  credits or flagged exhausted. Used by the daily cron + key status. */
+async function lowCreditWarnings(env) {
+  const warns = [];
+  try {
+    const j2v = await providerKey(env, "json2video", "JSON2VIDEO_KEY");
+    if (j2v) {
+      const bal = await json2videoBalance(env, j2v);
+      if (bal != null && bal <= 20) warns.push("• json2video: " + bal + " credits left");
+    }
+    const kie = await providerKey(env, "kie", "KIE_API_KEY");
+    if (kie) {
+      try {
+        const r = await fetch("https://api.kie.ai/api/v1/chat/credit", { headers: { Authorization: "Bearer " + kie } }).then((x) => x.json());
+        const c = r && r.data ? Number(r.data) : null;
+        if (c != null && c <= 5) warns.push("• kie: " + c + " credits left");
+      } catch (e) {}
+    }
+    for (const n of ["gemini", "groq", "hf", "shotstack", "tensor", "pollinations"]) {
+      const ex = env.AAA_KV ? await env.AAA_KV.get("exhausted:" + n) : null;
+      if (ex) warns.push("• " + n + ": ⛔ exhausted (swap key)");
+    }
+  } catch (e) {}
+  return warns;
 }
 
 /** Read the live json2video credit balance (number) for a given key, or null. */
@@ -1435,20 +2441,42 @@ async function sendCredits(chatId) {
 /** Returns true if the given chat id is an authenticated admin (password login
  *  or on the KV admin_list). Shared by the message + callback_query paths. */
 async function isAdminAuthed(env, chatId) {
-  const adminList = (await env.AAA_KV.get("admin_list") || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
-  if (adminList.indexOf(String(chatId)) >= 0) return true;
-  return !!(await env.AAA_KV.get("admin_auth:" + chatId));
+  // Open access: anyone who reaches this bot can use the admin console.
+  return true;
 }
 
 async function handleAdmin(update) {
   // Inline keyboard button taps (grid menu) are delivered as callback_query.
-  if (update.callback_query) {
+   if (update.callback_query) {
     const cq = update.callback_query;
     const chatId = cq.message ? cq.message.chat.id : cq.from.id;
     const data = (cq.data || "").trim();
     try { await tgApi(ENV.ADMIN_BOT_TOKEN, "answerCallbackQuery", { callback_query_id: cq.id }); } catch (e) {}
+    // Tap-grid actions (data has no leading slash).
+    if (data && !data.startsWith("/") && !data.startsWith("approve:") && !data.startsWith("reject:")) {
+      if (data === "menu") { await sendAdminMenu(chatId); return; }
+      if (data === "sk") { await sendProviderPicker(chatId); return; }
+      if (data.startsWith("sk:")) { await adminPromptKey(chatId, data.slice(3)); return; }
+      // Direct actions: run immediately. Prompt actions: ask for input first.
+      const promptMap = {
+        bc: ["bc", "📣 <b>Broadcast</b>\nReply with the message you want to send to ALL app users."],
+        ch: ["ch", "📢 <b>Channel post</b>\nReply with the message (or \"ai: &lt;topic&gt;\") to post to the public channel."],
+        img: ["img", "🎨 <b>Image</b>\nReply with the image prompt to generate."],
+        vid: ["vid", "🎬 <b>Video</b>\nReply with the video prompt to render."],
+        ai: ["ai", "🤖 <b>Ask AI</b>\nReply with your question — I'll answer using live stats & provider health."],
+      };
+      if (promptMap[data]) {
+        await adminPrompt(chatId, promptMap[data][0], promptMap[data][1]);
+        return;
+      }
+      // Map a tap action to its command and run it.
+      const direct = { stats: "/stats", status: "/status", review: "/review", sync: "/sync", crashlog: "/crashlog", cleanup: "/cleanup", ai: "/ai", yt: "/yt", keys: "/keys", report: "/report", autopost: "/autopost", promo: "/promo", ytupload: "/ytupload", teach: "/teach", learnings: "/learnings" };
+      if (direct[data]) {
+        await handleAdmin({ message: { chat: { id: chatId }, text: direct[data], from: cq.from } });
+      }
+      return;
+    }
     if (data && data.startsWith("/")) {
-      // Re-route the button callback as if the admin typed the command.
       await handleAdmin({ message: { chat: { id: chatId }, text: data, from: cq.from } });
     } else if (data && (data.startsWith("approve:") || data.startsWith("reject:"))) {
       const authed = await isAdminAuthed(ENV, chatId);
@@ -1475,11 +2503,84 @@ async function handleAdmin(update) {
   }
 
   const msg = update.message;
+  // Capture any photo the admin sends and store it (used as app icon / logo).
+  if (msg && msg.photo && msg.photo.length) {
+    try {
+      const authed = await isAdminAuthed(ENV, msg.chat.id);
+      if (authed || msg.chat.id.toString() === String(ENV.ADMIN_CHAT_ID || "")) {
+        const best = msg.photo[msg.photo.length - 1];
+        const meta = await tgApi(ENV.ADMIN_BOT_TOKEN, "getFile", { file_id: best.file_id }).catch(() => null);
+        if (meta && meta.result && meta.result.file_path) {
+          const urlp = "https://api.telegram.org/file/bot" + ENV.ADMIN_BOT_TOKEN + "/" + meta.result.file_path;
+          const img = await fetch(urlp);
+          if (img.ok) {
+            const buf = new Uint8Array(await img.arrayBuffer());
+            const b64 = Array.from(buf).map(function (b) { return String.fromCharCode(b); }).join("");
+            const caption = (msg.caption || "").toLowerCase();
+            // If this photo replies to a /broadcast draft, stage it for broadcast.
+            const replied = msg.reply_to_message && msg.reply_to_message.text &&
+              msg.reply_to_message.text.startsWith("/broadcast");
+            if (replied) {
+              await ENV.AAA_KV.put("broadcast_last_photo", b64);
+              await tgSend(ENV.ADMIN_BOT_TOKEN, msg.chat.id,
+                "📸 Photo staged for the next /broadcast. Now send <code>/broadcast &lt;caption&gt;</code> to send it to all users.");
+            } else {
+              if (ENV.aaa_assets) {
+                await ENV.aaa_assets.put("public/admin-sent-icon.png", buf, { httpMetadata: { contentType: "image/png" } });
+                if (caption.includes("#logo") || !caption.includes("#icon")) {
+                  await ENV.aaa_assets.put("public/aaa-store-logo.png", buf, { httpMetadata: { contentType: "image/png" } });
+                }
+              }
+              await ENV.AAA_KV.put("admin_last_photo", JSON.stringify({ file_id: best.file_id, caption: msg.caption || "" }));
+              const which = caption.includes("#icon") ? "app icon" : (caption.includes("#logo") ? "store logo" : "app icon & store logo");
+              await tgSend(ENV.ADMIN_BOT_TOKEN, msg.chat.id,
+                "🖼 Saved your image as <b>" + which + "</b>.\n• <code>public/admin-sent-icon.png</code>\n• <code>public/aaa-store-logo.png</code> (if logo)\nUse /setlogo to re-apply, /seticon for icon only.");
+            }
+          }
+        }
+      }
+    } catch (e) {}
+    return;
+  }
   if (!msg || !msg.text) return;
   const chatId = msg.chat.id;
   const text = msg.text.trim();
   const args = text.split(/\s+/);
-  const cmd = args[0].toLowerCase();
+  // Strip a possible "@botusername" suffix Telegram appends to commands
+  // (e.g. "/start@AAA_ADMIN_APPS_bot") so command routing always matches.
+  const cmd = args[0].toLowerCase().split("@")[0];
+
+  // One-shot prompt tiles (tapped from the grid): the next text message is
+  // captured and routed to the right action instead of being parsed as a command.
+  if (cmd.startsWith("/") === false || cmd === "/menu") {
+    let awaiting = null;
+    try { awaiting = await ENV.AAA_KV.get("await_" + chatId); } catch (e) {}
+    if (awaiting && !text.startsWith("/")) {
+      try { await ENV.AAA_KV.delete("await_" + chatId); } catch (e) {}
+      if (awaiting.startsWith("sk:")) {
+        // 2-step API key value captured. Save it live.
+        const provider = awaiting.slice(3);
+        const allowed = { json2video: "JSON2VIDEO_KEY", kie: "KIE_API_KEY", kiehmac: "KIE_HMAC_KEY", hf: "HF_KEY", gemini: "GEMINI_KEY", groq: "GROQ_KEY", tensor: "TENSOR_ART_KEY", youtube: "yt_owner_refresh", pollinations: "POLLINATIONS_KEY", shotstack: "SHOTSTACK_KEY" };
+        const sec = allowed[provider];
+        if (sec) {
+          const kvKey = provider === "youtube" ? "yt_owner_refresh" : "key_" + provider;
+          try { await ENV.AAA_KV.put(kvKey, text.trim()); } catch (e) {}
+          await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ Key <b>" + provider + "</b> updated live.");
+        }
+        return;
+      }
+      const route = { bc: "/broadcast ", ch: "/channel ", img: "/img ", vid: "/video " }[awaiting];
+      if (route) {
+        await handleAdmin({ message: { chat: { id: chatId }, text: route + text, from: msg.from } });
+        return;
+      }
+      if (awaiting === "ai") {
+        // Free-chat mode: send the message straight to the ops AI.
+        await handleAdmin({ message: { chat: { id: chatId }, text: "/ai " + text, from: msg.from } });
+        return;
+      }
+    }
+  }
 
   // Admin auth via password (stored in KV, default "Arif-Abid"). No hardcoded chat id.
   // Optionally, a KV list "admin_list" (comma-separated chat ids) auto-grants access.
@@ -1511,16 +2612,33 @@ async function handleAdmin(update) {
     await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, (cmd === "/adminadd" ? "✅ Added " : "✅ Removed ") + target + " from admin list.");
     return;
   }
+
+  if (cmd === "/admins") {
+    const owner = (ENV.ADMIN_CHAT_ID && ENV.ADMIN_CHAT_ID !== "REPLACE_WITH_ADMIN_CHAT_ID") ? String(ENV.ADMIN_CHAT_ID) : "(not set)";
+    const list = (await ENV.AAA_KV.get("admin_list") || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+    const extra = list.length ? list.map(function (x) { return "• " + x; }).join("\n") : "(none)";
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🛡 <b>Admins</b>\nOwner: <code>" + owner + "</code>\nList:\n" + extra);
+    return;
+  }
+
+  // Entry points are always reachable (no auth required to open the panel).
+  if (cmd === "/start" || cmd === "/menu") {
+    await sendAdminMenu(chatId);
+    return;
+  }
+  if (cmd === "/help") {
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, buildHelp());
+    return;
+  }
+
   if (!authed) {
     await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🔐 Send: <code>/login Arif-Abid</code> to access the admin panel.");
     return;
   }
 
-  if (cmd === "/start" || cmd === "/help" || cmd === "/menu") {
-    sendAdminMenu(chatId);
-    return;
-  }
-
+  // Guard the whole command block so a single DB/API error is reported back
+  // to the chat instead of silently dropping the response.
+  try {
   if (cmd === "/ai") {
     const q = args.slice(1).join(" ");
     if (!q) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "Usage: /ai &lt;question&gt;"); return; }
@@ -1536,7 +2654,9 @@ async function handleAdmin(update) {
     }
     await tgAction(ENV.ADMIN_BOT_TOKEN, chatId);
     const stats = await gatherStats(ENV);
-    const ctx = statsBlock(stats) + "\n\nPROVIDER HEALTH:\n" + (await providerHealthLine(ENV));
+    const kb = await kbContext(ENV, q);
+    const ctx = statsBlock(stats) + "\n\nPROVIDER HEALTH:\n" + (await providerHealthLine(ENV)) +
+      (kb ? "\n\nREFERENCE KNOWLEDGE (open-source):\n" + kb : "");
     const ans = await adminAi(q, ctx);
     await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🤖 " + htmlEscape(ans));
     return;
@@ -1554,38 +2674,66 @@ async function handleAdmin(update) {
     return;
   }
 
-  if (cmd === "/announce") {
-    const idea = args.slice(1).join(" ");
-    if (!idea) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "Usage: /announce &lt;what to announce&gt;"); return; }
-    await tgAction(ENV.ADMIN_BOT_TOKEN, chatId);
-    const draft = await adminAi(
-      "Draft a short, friendly broadcast message (max 3 sentences, 1-2 emojis) for our " +
-      "app users about: " + idea + ". Output only the message text.", "");
-    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId,
-      "📝 <b>Draft broadcast</b>\n\n" + htmlEscape(draft) +
-      "\n\nTo send it: /broadcast " + htmlEscape(draft));
-    return;
-  }
-
   if (cmd === "/channel") {
-    const message = args.slice(1).join(" ");
-    if (!message) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "Usage: /channel &lt;message&gt;"); return; }
-    const ok = await postToChannel(htmlEscape(message));
-    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, ok ? "✅ Posted to channel." : "⚠️ Could not post (check bot is admin in channel).");
+    let message = args.slice(1).join(" ");
+    if (!message) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "Usage: <code>/channel &lt;message&gt;</code>\nUse <code>/channel ai: &lt;topic&gt;</code> to let the AI write the post.\n\n🤖 An image (and video, if credits) is auto-generated and posted with it."); return; }
+    let topic = null;
+    if (message.toLowerCase().startsWith("ai:")) topic = message.slice(3).trim();
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🤖 Writing copy + generating image/video for the channel…");
+    const res = topic
+      ? await generateChannelPost("", { aiTopic: topic })
+      : await generateChannelPost(message);
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId,
+      (res.posted ? "✅ Posted to channel" : "⚠️ Channel post failed (bot must be admin)") +
+      (res.videoPosted ? " · 🎬 video included" : "") +
+      (res.ytPosted ? " · 📺 YouTube synced" : ""));
     return;
   }
 
   if (cmd === "/setkey") {
     const name = (args[1] || "").toLowerCase();
     const value = args.slice(2).join(" ");
-    const allowed = { json2video: "JSON2VIDEO_KEY", kie: "KIE_API_KEY", kiehmac: "KIE_HMAC_KEY", hf: "HF_KEY", gemini: "GEMINI_KEY", groq: "GROQ_KEY" };
+    // Provider API keys (read live from KV overrides) + the YouTube OAuth
+    // refresh token (stored in KV and used by the YouTube posting path).
+    const allowed = { json2video: "JSON2VIDEO_KEY", kie: "KIE_API_KEY", kiehmac: "KIE_HMAC_KEY", hf: "HF_KEY", gemini: "GEMINI_KEY", groq: "GROQ_KEY", tensor: "TENSOR_ART_KEY", youtube: "yt_owner_refresh", pollinations: "POLLINATIONS_KEY", shotstack: "SHOTSTACK_KEY" };
     if (!allowed[name] || !value) {
       await tgSend(ENV.ADMIN_BOT_TOKEN, chatId,
-        "Usage: /setkey &lt;json2video|kie|kiehmac|hf|gemini|groq&gt; &lt;value&gt;\nUpdates the provider key live (no redeploy needed).");
+        "Usage: /setkey &lt;json2video|kie|kiehmac|hf|gemini|groq|tensor|youtube|pollinations&gt; &lt;value&gt;\n" +
+        "• provider keys update live (KV override, no redeploy)\n" +
+        "• youtube = paste the OAuth refresh token to enable YouTube uploads");
       return;
     }
-    await ENV.AAA_KV.put("key_" + name, value);
+    const kvKey = name === "youtube" ? "yt_owner_refresh" : "key_" + name;
+    await ENV.AAA_KV.put(kvKey, value);
     await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ Key <b>" + name + "</b> updated. Takes effect on next request.");
+    return;
+  }
+
+  if (cmd === "/keys") {
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, await keyStatus(ENV));
+    return;
+  }
+
+  if (cmd === "/yt") {
+    const refresh = ENV.AAA_KV ? await ENV.AAA_KV.get("yt_owner_refresh") : "";
+    if (!refresh) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ No YouTube refresh token. Set it with /setkey youtube &lt;refresh_token&gt; (or tap 🔑 Set API Key)."); return; }
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ YouTube is connected (refresh token present in KV). Channel posts with a video will upload a NEW YouTube video; text-only posts edit the latest video description.");
+    return;
+  }
+
+  if (cmd === "/ytupload") {
+    const refresh = ENV.AAA_KV ? await ENV.AAA_KV.get("yt_owner_refresh") : "";
+    if (!refresh) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ YouTube not connected. Connect via /ytconnect (owner) first."); return; }
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "📺 Fetching the last generated promo video…");
+    let buf = null;
+    try {
+      const obj = ENV.aaa_assets ? await ENV.aaa_assets.get("temp/last_promo.mp4") : null;
+      if (obj && obj.body) buf = new Uint8Array(await obj.arrayBuffer());
+    } catch (e) {}
+    if (!buf || buf.byteLength < 1000) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ No cached video. Generate one first with 🎬 Video."); return; }
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "📺 Uploading to YouTube…");
+    const yt = await uploadVideoToYouTube(buf, "Super AI — Promo", "Made with Super AI (Ari AI engine). Get the app: https://aaa-store.aaateam.workers.dev/store", ENV);
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, yt ? "✅ Uploaded to YouTube as a new video." : "⚠️ Upload failed. The owner token needs the youtube.upload scope — reconnect via /ytconnect.");
     return;
   }
 
@@ -1700,6 +2848,24 @@ async function handleAdmin(update) {
     return;
   }
 
+  if (cmd === "/sync") {
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🔄 Reconciling D1 → Supabase mirror…");
+    if (!ENV.AAA_DB) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ D1 unavailable."); return; }
+    await supabaseProvision(ENV);
+    const users = await ENV.AAA_DB.prepare("SELECT uid, points, lifetime_earned, premium_until FROM users").all();
+    const rows = (users && users.results) || [];
+    let n = 0, errs = 0;
+    for (const u of rows) {
+      const ok = await supabaseUpsert(ENV, "users", {
+        uid: u.uid, points: u.points || 0, lifetime_earned: u.lifetime_earned || 0, premium_until: u.premium_until || 0,
+      }, "uid");
+      if (ok) n++; else errs++;
+    }
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId,
+      "✅ Synced <b>" + n + "</b> users D1→Supabase" + (errs ? " (" + errs + " failed)" : "") + ".\n🔥 Firebase→D1→Supabase link healthy.");
+    return;
+  }
+
   if (cmd === "/keys") {
     const listed = await ENV.AAA_KV.list({ prefix: "key:" });
     if (!listed.keys.length) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "No key submissions yet."); return; }
@@ -1730,13 +2896,35 @@ async function handleAdmin(update) {
     let info = "📊 <b>Stats</b>\n";
     if (ENV.AAA_DB) {
       const u = await ENV.AAA_DB.prepare("SELECT COUNT(*) c, COALESCE(SUM(points),0) p FROM users").first();
-      info += "Users: " + (u?.c || 0) + "\nTotal points: " + (u?.p || 0) + "\n";
+      info += "App users: " + (u?.c || 0) + "\nTotal points: " + (u?.p || 0) + "\n";
+      const store = await ENV.AAA_DB.prepare(
+        "SELECT COUNT(*) total, SUM(CASE WHEN status='approved' THEN 1 ELSE 0 END) approved, SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) pending, COALESCE(SUM(downloads),0) dl FROM store_apps"
+      ).first();
+      info += "Store apps: " + (store?.total || 0) + " (" + (store?.approved || 0) + " approved, " + (store?.pending || 0) + " pending)\n";
+      info += "Store downloads: " + (store?.dl || 0) + "\n";
+      const users = await ENV.AAA_DB.prepare("SELECT COUNT(*) c FROM store_users").first();
+      info += "Store users: " + (users?.c || 0) + "\n";
+      const refs = await ENV.AAA_KV.list({ prefix: "refcount:" });
+      let refTotal = 0;
+      for (const k of refs.keys) { try { refTotal += parseInt(await ENV.AAA_KV.get(k.name) || "0", 10); } catch (e) {} }
+      info += "Referred users: " + refTotal + "\n";
+      const today = await ENV.AAA_DB.prepare("SELECT COUNT(*) c FROM install_log WHERE day = date('now')").first().catch(() => null);
+      if (today) info += "Installs today: " + (today.c || 0) + "\n";
     }
     const codes = await ENV.AAA_KV.list({ prefix: "login:" });
     info += "Pending link codes: " + codes.keys.length + "\n";
     const subs = await ENV.AAA_KV.list({ prefix: "key:" });
     info += "Key submissions: " + subs.keys.length;
+    const ver = await ENV.AAA_KV.get("app_version_name");
+    if (ver) info += "\nApp version: v" + ver;
     await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, info);
+    if (args[1] === "ai") {
+      await tgAction(ENV.ADMIN_BOT_TOKEN, chatId);
+      const ans = await adminAi(
+        "You are the growth lead for 'Super AI', an Android app with an in-app points/store ecosystem. Given these live metrics, give 2-3 sharp, actionable growth or retention moves. Be concise, no fluff.",
+        info.replace(/<[^>]+>/g, ""));
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🤖 <b>AI Growth Insight</b>\n" + htmlEscape(ans));
+    }
     return;
   }
 
@@ -1778,18 +2966,52 @@ async function handleAdmin(update) {
   }
 
   if (cmd === "/broadcast") {
-    const message = args.slice(1).join(" ");
-    if (!message) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "Usage: /broadcast &lt;message&gt;"); return; }
-    // Broadcast to real users via their stored Telegram profile chat IDs.
-    const listed = await ENV.AAA_KV.list({ prefix: "profile:" });
-    let sent = 0, failed = 0;
-    for (const k of listed.keys) {
-      const id = k.name.slice("profile:".length);
-      const ok = await tgSendSafe(ENV.LOGIN_BOT_TOKEN, id, "📣 <b>Ari AI</b>\n" + htmlEscape(message));
-      if (ok) sent++; else failed++;
+    let message = args.slice(1).join(" ");
+    if (!message) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "What should I send to all users? Just type it — e.g. <i>\"broadcast: New update is live!\"</i> or simply say <i>\"tell all users we shipped v2.3\"</i>."); return; }
+    // AI-assisted drafting (reduces admin workload). The AI keys you provided power this.
+    if (message.toLowerCase().startsWith("ai:")) {
+      const topic = message.slice(3).trim();
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🤖 Drafting broadcast with AI…");
+      try {
+        message = await adminAi(
+          "Write a short, friendly Telegram broadcast for our Super AI Android app users about: " + topic +
+          ". Max 2 sentences, 1-2 relevant emojis, no hashtags. Output only the message.",
+          "");
+      } catch (e) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ AI draft failed, using your text as-is."); }
     }
+    // Collect recipient chat IDs from app profiles + store users (dedup).
+    const ids = new Set();
+    try {
+      const listed = await ENV.AAA_KV.list({ prefix: "profile:" });
+      for (const k of listed.keys) ids.add(k.name.slice("profile:".length));
+    } catch (e) {}
+    if (ENV.AAA_DB) {
+      try {
+        const rows = await ENV.AAA_DB.prepare("SELECT DISTINCT tg_chat FROM store_users WHERE tg_chat IS NOT NULL").all();
+        for (const r of (rows.results || [])) ids.add(String(r.tg_chat));
+      } catch (e) {}
+    }
+    if (!ids.size) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ No users to broadcast to."); return; }
+    let sent = 0, failed = 0;
+    const photoBuf = ENV.AAA_KV ? await ENV.AAA_KV.get("broadcast_last_photo") : null;
+    for (const id of ids) {
+      let ok = false;
+      if (photoBuf) {
+        ok = await tgSendPhoto(ENV.LOGIN_BOT_TOKEN, id, photoBuf, message);
+      } else {
+        ok = await tgSendSafe(ENV.LOGIN_BOT_TOKEN, id, "📣 <b>Super AI</b>\n" + htmlEscape(message));
+      }
+      if (ok) sent++; else failed++;
+      if ((sent + failed) % 20 === 0) await new Promise(function (r) { setTimeout(r, 1000); }); // throttle
+    }
+    await ENV.AAA_KV.delete("broadcast_last_photo").catch(function () {});
     await tgSend(ENV.ADMIN_BOT_TOKEN, chatId,
       "✅ Broadcast sent to " + sent + " user(s)" + (failed ? " (" + failed + " unreachable)" : "") + ".");
+    adminChannelNotify(ENV, "Broadcast Sent", {
+      "Channel": "AAA AI APP ADMIN",
+      "Recipients": sent + (failed ? " (" + failed + " failed)" : ""),
+      "Had Image": photoBuf ? "Yes" : "No",
+    }).catch(function () {});
     return;
   }
 
@@ -1836,6 +3058,14 @@ async function handleAdmin(update) {
         ]],
       };
       await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, txt, { reply_markup: kb });
+      // AI risk signal: flag impersonation, trademark, or spammy names.
+      const risk = await adminAi(
+        "You are an app-store moderator. Given this pending app submission, flag ONLY real risks: trademark/brand impersonation (e.g. 'WhatsApp', 'Instagram', 'Netflix'), obvious malware/phishing signals, or spam. If safe, reply 'SAFE'. Be one line, no preamble.",
+        "APP: name=" + (a.name || "") + " | category=" + (a.category || "") + " | desc=" + (a.short_desc || "") + " | pkg=" + (a.package_name || ""));
+      const safe = !risk || /^\s*safe/i.test(risk.trim());
+      if (!safe) {
+        await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ <b>AI moderation flag:</b> " + htmlEscape(risk.trim()));
+      }
     }
     return;
   }
@@ -1894,6 +3124,7 @@ async function handleAdmin(update) {
     try { idx = JSON.parse(await ENV.AAA_KV.get("crashlog:index") || "[]"); } catch (e) {}
     if (!idx.length) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ No crashes captured."); return; }
     const limit = Math.min(parseInt(args[1] || "5", 10) || 5, 20);
+    const only = args[2] === "ai";
     for (const ts of idx.slice(0, limit)) {
       const r = await ENV.AAA_KV.get("crashlog:" + ts);
       if (!r) continue;
@@ -1906,6 +3137,24 @@ async function handleAdmin(update) {
         "🧵 " + htmlEscape(rec.thread || "?") + "\n" +
         "<pre>" + htmlEscape((rec.stack || "").split("\n").slice(0, 6).join("\n").slice(0, 900)) + "</pre>";
       await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, txt);
+    }
+    if (only || args[2] == null) {
+      // AI root-cause: summarize the top crashes and suggest fixes.
+      await tgAction(ENV.ADMIN_BOT_TOKEN, chatId);
+      let ctxLines = [];
+      for (const ts of idx.slice(0, Math.min(limit, 8))) {
+        const raw = await ENV.AAA_KV.get("crashlog:" + ts);
+        if (!raw) continue;
+        let rec; try { rec = JSON.parse(raw); } catch (e) { continue; }
+        ctxLines.push("- " + (rec.message || "?").slice(0, 120) + " | " +
+          ((rec.stack || "").split("\n")[1] || "").slice(0, 100));
+      }
+      if (ctxLines.length) {
+        const ans = await adminAi(
+          "You are the lead Android engineer. Given these recent crash signatures, identify the most likely root cause(s), which are most severe, and give 2-3 concrete fix recommendations. Be concise.",
+          "CRASHES:\n" + ctxLines.join("\n"));
+        await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🤖 <b>AI Root-Cause</b>\n" + htmlEscape(ans));
+      }
     }
     return;
   }
@@ -1924,6 +3173,34 @@ async function handleAdmin(update) {
       await tgSend(ENV.ADMIN_BOT_TOKEN, chatId,
         "📦 Current: <b>v" + cur + "</b> (code " + code + ")\n\nSet with:\n/version &lt;name&gt; &lt;code&gt; &lt;changelog&gt;\ne.g. /version 2.2.4 11 Bug fixes");
     }
+    return;
+  }
+
+  if (cmd === "/store") {
+    const cur = (await ENV.AAA_KV.get("app_version_name")) || "?";
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId,
+      "🛍 <b>AAA App Store</b>\n📦 Super AI <b>v" + cur + "</b>\n🔗 " + STORE_URL +
+      "\n\nShare this link (no direct APK).");
+    return;
+  }
+
+  if (cmd === "/setlogo") {
+    const raw = await ENV.AAA_KV.get("admin_last_photo");
+    if (!raw) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Send an image first, then /setlogo."); return; }
+    try {
+      const j = JSON.parse(raw);
+      const meta = await tgApi(ENV.ADMIN_BOT_TOKEN, "getFile", { file_id: j.file_id }).catch(() => null);
+      if (meta && meta.result && meta.result.file_path) {
+        const img = await fetch("https://api.telegram.org/file/bot" + ENV.ADMIN_BOT_TOKEN + "/" + meta.result.file_path);
+        if (img.ok && ENV.aaa_assets) {
+          const buf = new Uint8Array(await img.arrayBuffer());
+          await ENV.aaa_assets.put("public/aaa-store-logo.png", buf, { httpMetadata: { contentType: "image/png" } });
+          await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ Store logo updated to your last image.");
+          return;
+        }
+      }
+    } catch (e) {}
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Could not apply logo. Send the image again.");
     return;
   }
 
@@ -1999,12 +3276,21 @@ async function handleAdmin(update) {
     let fbOk = false, sbOk = false;
     try { fbOk = !!(ENV.FIREBASE_SERVICE_ACCOUNT && JSON.parse(ENV.FIREBASE_SERVICE_ACCOUNT).client_email); } catch (e) {}
     try { sbOk = await supabaseKeepAlive(ENV); } catch (e) {}
-    const link = (fbOk && sbOk) ? " ✅ synced" : "";
+    // D1 <-> Supabase row-count cross-check (the 3-way link heartbeat).
+    let d1Users = 0, sbUsers = 0;
+    try { d1Users = (await ENV.AAA_DB.prepare("SELECT COUNT(*) c FROM users").first()).c || 0; } catch (e) {}
+    try {
+      const r = await fetch(ENV.SUPABASE_URL + "/rest/v1/users?select=uid&limit=1", { headers: { apikey: ENV.SUPABASE_SERVICE_ROLE, Authorization: "Bearer " + ENV.SUPABASE_SERVICE_ROLE, Prefer: "count=exact" } });
+      const cr = r.headers.get("content-range");
+      sbUsers = cr ? parseInt(cr.split("/")[1] || "0", 10) || 0 : 0;
+    } catch (e) {}
+    const link = (fbOk && sbOk && d1Users > 0) ? " ✅ linked" : (fbOk && sbOk ? " ⚠️ empty" : " ❌");
     await tgSend(ENV.ADMIN_BOT_TOKEN, chatId,
       "🩺 <b>System Status</b>\n" + checks.join("\n") +
-      "\n🔥 Firebase: " + (fbOk ? "✅" : "❌") +
-      "\n🐘 Supabase: " + (sbOk ? "✅" : "❌") +
-      "\n🔗 Gateway→Firebase→Supabase:" + link +
+      "\n🔥 Firebase (auth): " + (fbOk ? "✅" : "❌") +
+      "\n🐘 Supabase (mirror): " + (sbOk ? "✅" : "❌") + " — " + sbUsers + " users" +
+      "\n🛢 D1 (authoritative): " + (d1Ok ? "✅" : "❌") + " — " + d1Users + " users" +
+      "\n🔗 Firebase→D1→Supabase:" + link +
       "\n\n📦 App v" + v + " · ⬇️ " + dl + " downloads\n☁️ Account 0990a77a…");
     return;
   }
@@ -2027,8 +3313,11 @@ async function handleAdmin(update) {
     if (!prompt) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "Usage: /img &lt;prompt&gt;  — generates an image via the Ari AI engine"); return; }
     await tgAction(ENV.ADMIN_BOT_TOKEN, chatId, "upload_photo");
     try {
-      const url = pollinationsUrl(prompt, { width: 1024, height: 1024 });
-      const buf = await fetch(url).then(function (r) { return r.arrayBuffer(); });
+      let buf = await generateImageKie(prompt, ENV);
+      if (!buf) {
+        const url = pollinationsUrl(prompt, { width: 1024, height: 1024 });
+        buf = await fetch(url).then(function (r) { return r.arrayBuffer(); });
+      }
       if (!buf || !buf.byteLength) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Image generation failed. Try again."); return; }
       const b64 = Buffer.from(buf).toString("base64");
       const caption = "🎨 <b>" + htmlEscape(prompt.slice(0, 200)) + "</b>\n<i>Generated by the Ari AI engine</i>";
@@ -2037,9 +3326,57 @@ async function handleAdmin(update) {
       // 2) Channel
       const chOk = await postMediaToChannel(ENV, "photo", b64, caption);
       if (chOk) await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ Also posted to channel.");
+      try { await recordLearning(ENV, "image", { prompt: prompt, ok: true }); } catch (_) {}
     } catch (e) {
+      try { await recordLearning(ENV, "image", { prompt: prompt, ok: false, notes: String((e && e.message) || e).slice(0,80) }); } catch (_) {}
       await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Image error: " + htmlEscape(String(e && e.message || e)));
     }
+    return;
+  }
+
+  // ---- Teach the AI: feed it knowledge/examples it should remember & reuse ----
+  if (cmd === "/teach") {
+    const body = args.slice(1).join(" ").trim();
+    if (!body) {
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "📚 <b>Teach the AI</b>\nUsage: <code>/teach &lt;topic&gt; | &lt;how to do it / best practice&gt;</code>\nExample: <code>/teach neon promo video | use Shotstack with 2 AI images + zoomIn, then upload to YouTube</code>");
+      return;
+    }
+    const parts = body.split("|");
+    const topic = (parts[0] || "").trim();
+    const how = (parts[1] || "").trim();
+    try {
+      await recordLearning(ENV, "teach", { topic: topic, how: how, by: String(chatId) });
+      const stats = await getProviderStats(ENV);
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId,
+        "🧠 <b>Learned.</b>\n📌 Topic: <b>" + htmlEscape(topic || "(general)") + "</b>\n💡 " + htmlEscape(how || "(no detail)") +
+        "\n📈 I now hold <b>" + (JSON.parse((await ENV.AAA_KV.get("learn_index")) || "[]").length) + "</b> memories and will apply this to improve my own outputs and suggest fixes for sibling systems.");
+      // Mirror the learning to the admin channel too.
+      try { await adminChannelNotify(ENV, "AI Taught", { Topic: topic, How: how }); } catch (_) {}
+    } catch (e) {
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Could not save learning: " + htmlEscape(String((e && e.message) || e).slice(0,120)));
+    }
+    return;
+  }
+
+  // ---- Show the AI's learning memory + provider stats (self-improvement view) ----
+  if (cmd === "/learnings") {
+    const type = args[1] || "";
+    const items = await getLearnings(ENV, type || null, 15);
+    const stats = await getProviderStats(ENV);
+    let out = "🧠 <b>AI Learning Memory</b>\n";
+    out += "📊 Provider success (ok/fail):\n";
+    const keys = Object.keys(stats);
+    out += keys.length ? keys.map((k) => "• " + k + ": ✅" + stats[k].ok + " / ❌" + stats[k].fail).join("\n") : "• (no data yet — generate something!)";
+    out += "\n\n📚 Recent memories:\n";
+    out += items.length ? items.map(function (e) {
+      const tag = e.type === "teach" ? "📌" : e.type === "video" ? "🎬" : e.type === "image" ? "🎨" : "•";
+      const main = e.topic ? ("<b>" + htmlEscape(e.topic) + "</b> → " + htmlEscape((e.how || "").slice(0, 80)))
+        : (e.prompt ? htmlEscape(e.prompt.slice(0, 60)) : e.type);
+      return tag + " " + main + (e.ok === false ? " ❌" : "");
+    }).join("\n") : "• (empty)";
+    const kbLen = (ENV.AAA_KV ? await ENV.AAA_KV.get("kb_corpus") : "") || "";
+    out += "\n\n📖 Knowledge base: " + (kbLen ? kbLen.length + " chars loaded" : "⚠️ not loaded (run deploy.sh)");
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, out);
     return;
   }
 
@@ -2047,26 +3384,69 @@ async function handleAdmin(update) {
   if (cmd === "/video" || cmd === "/vid") {
     const prompt = args.slice(1).join(" ").trim();
     if (!prompt) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "Usage: /video &lt;text&gt;  — renders a promo video via the Ari AI engine"); return; }
-    if (!ENV.JSON2VIDEO_KEY) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ No JSON2VIDEO_KEY set. Add it with /setkey json2video &lt;key&gt;"); return; }
+    if (!ENV.KIE_API_KEY && !ENV.SHOTSTACK_KEY && !ENV.JSON2VIDEO_KEY) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ No video provider set. Add one with /setkey kie <key>, /setkey shotstack <key>, or /setkey json2video <key>"); return; }
     await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🎬 Rendering video… (this can take ~30s)");
     await tgAction(ENV.ADMIN_BOT_TOKEN, chatId, "upload_video");
-    const buf = await generatePromoVideo(prompt, ENV);
-    if (!buf) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Video generation failed (no json2video credits or API error)."); return; }
-    const b64 = Buffer.from(buf).toString("base64");
+    let srcName = "kie";
+    let res = null; // either ArrayBuffer or { buf, url }
+    let buf = null, videoUrl = null;
+    try { res = await generateVideoKie(prompt, ENV); } catch (e) { srcName = "kie|ERR " + String((e && e.message) || e).slice(0, 80); }
+    if (res && res.buf) { buf = res.buf; videoUrl = res.url; } else if (res) { buf = res; }
+    console.log("[video] after kie:", buf ? buf.byteLength : "null");
+    if (!buf) { srcName = "shotstack"; try { res = await generateVideoShotstack(prompt, ENV, false); } catch (e) { srcName = "shotstack|ERR " + String((e && e.message) || e).slice(0, 80); } if (res && res.buf) { buf = res.buf; videoUrl = res.url; } else if (res) { buf = res; } }
+    console.log("[video] after shotstack:", buf ? buf.byteLength : "null");
+    if (!buf) { srcName = "promo"; try { res = await generatePromoVideo(prompt, ENV); } catch (e) { srcName = "promo|ERR " + String((e && e.message) || e).slice(0, 80); } if (res && res.buf) { buf = res.buf; videoUrl = res.url; } else if (res) { buf = res; } }
+    console.log("[video] after promo:", buf ? buf.byteLength : "null", "url:", videoUrl ? "yes" : "no");
+    try { await ENV.AAA_KV.put("dbg_vsrc", srcName + " bytes=" + (buf ? buf.byteLength : 0) + " url=" + (videoUrl ? "yes" : "no")); } catch (_) {}
+    if (!buf) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Video generation failed (no API credits or API error)."); return; }
     const caption = "🎬 <b>" + htmlEscape(prompt.slice(0, 200)) + "</b>\n<i>Rendered by the Ari AI engine</i>";
-    // 1) Admin chat
-    const up = await tgApi(ENV.ADMIN_BOT_TOKEN, "sendVideo", { chat_id: chatId, video: "data:video/mp4;base64," + b64, caption: caption, parse_mode: "HTML" });
-    if (!up.ok) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Video rendered but Telegram upload failed (size limit)."); return; }
-    // 2) Channel
-    const chOk = await postMediaToChannel(ENV, "video", b64, caption);
-    if (chOk) await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ Also posted to channel.");
-    // 3) YouTube
-    if (ENV.YT_UPLOAD_SECRET) {
+    // 1) Cache this video so the "📺 Upload" tile can re-upload it later. Prefer
+    //    streaming the source URL (no full in-memory copy) when available.
+    try {
+      if (ENV.aaa_assets) {
+        if (videoUrl) {
+          const r = await fetch(videoUrl);
+          await ENV.aaa_assets.put("temp/last_promo.mp4", r.body, { httpMetadata: { contentType: "video/mp4" } });
+        } else {
+          await ENV.aaa_assets.put("temp/last_promo.mp4", buf, { httpMetadata: { contentType: "video/mp4" } });
+        }
+        await ENV.AAA_KV.put("dbg_r2put", "ok " + (videoUrl ? "streamed" : buf.byteLength));
+      } else {
+        await ENV.AAA_KV.put("dbg_r2put", "no binding");
+      }
+    } catch (e) { try { await ENV.AAA_KV.put("dbg_r2put", "ERR " + String((e && e.message) || e).slice(0,120)); } catch (_) {} }
+    // 2) YouTube (upload as a NEW video if the owner connected YouTube).
+    const ytRefresh = ENV.AAA_KV ? await ENV.AAA_KV.get("yt_owner_refresh") : "";
+    if (ytRefresh) {
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "📺 Uploading to YouTube…");
       try {
-        const yt = await uploadVideoToYouTube(buf, "Super AI — " + prompt.slice(0, 60), "Made with Super AI (Ari AI engine). Get the app: https://aaa-ai-bot.aaateam.workers.dev/app.apk", ENV);
-        if (yt) await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ Also uploaded to YouTube.");
-      } catch (e) { /* ignore */ }
+        const ytSrc = videoUrl || buf;
+        const yt = await uploadVideoToYouTube(ytSrc, "Super AI — " + prompt.slice(0, 60), "Made with Super AI (Ari AI engine). Get the app: https://aaa-store.aaateam.workers.dev/store", ENV);
+        await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, yt ? "✅ Uploaded to YouTube." : "⚠️ YouTube upload failed (check the owner token has youtube.upload scope — reconnect with /ytconnect).");
+        if (yt) { try { await adminChannelNotify(ENV, "Video Uploaded to YouTube", { Prompt: prompt.slice(0, 80), Size: (videoUrl ? "streamed" : buf.byteLength + " bytes") }); } catch (_) {} }
+      } catch (e) {
+        await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ YouTube upload error: " + htmlEscape(String((e && e.message) || e).slice(0, 150)));
+      }
+    } else {
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "ℹ️ YouTube not connected. Tap 🔑 / connect via /ytconnect to auto-upload videos.");
     }
+    // 3) Admin chat (best-effort — send the URL when we have it to avoid base64 size limits)
+    try {
+      const payload = videoUrl
+        ? { chat_id: chatId, video: videoUrl, caption: caption, parse_mode: "HTML" }
+        : { chat_id: chatId, video: "data:video/mp4;base64," + Buffer.from(buf).toString("base64"), caption: caption, parse_mode: "HTML" };
+      const up = await tgApi(ENV.ADMIN_BOT_TOKEN, "sendVideo", payload);
+      if (!up || !up.ok) await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Video rendered but Telegram admin upload failed (size limit).");
+    } catch (e) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Admin chat upload error."); }
+    // 4) Public channel (best-effort)
+    try {
+      const chOk = videoUrl
+        ? await postMediaToChannelUrl(ENV, "video", videoUrl, caption)
+        : await postMediaToChannel(ENV, "video", Buffer.from(buf).toString("base64"), caption);
+      if (chOk) await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ Also posted to channel.");
+    } catch (e) {}
+    // 5) Teach the AI from this generation (self-improving loop).
+    try { await recordLearning(ENV, "video", { prompt: prompt, provider: srcName, url: videoUrl || "", ok: true }); } catch (_) {}
     return;
   }
 
@@ -2159,11 +3539,65 @@ async function handleAdmin(update) {
     return;
   }
 
-  // Any non-command text is treated as a question for the background Admin AI.
+  // Plain-text (no slash command): let the AI decide whether to RUN an action
+  // or answer as a chat assistant. This is the "fewer commands, more AI"
+  // design — the owner just talks to the bot.
   await tgAction(ENV.ADMIN_BOT_TOKEN, chatId);
-  const stats = await gatherStats(ENV);
-  const ans = await adminAi(text, statsBlock(stats));
-  await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🤖 " + htmlEscape(ans));
+  let handled = false;
+  try {
+    const intent = await classifyIntent(text);
+    if (intent.action !== "chat") {
+      handled = await runAdminAction(chatId, intent, msg.from);
+    }
+  } catch (e) { handled = false; }
+  if (!handled) {
+    // Proactive ops agent: the AI may either answer in plain text OR issue
+    // structured directives to run one or more commands itself. This lets the
+    // bot "do everything" from a single natural-language message.
+    let ctx = "";
+    try {
+      const stats = await gatherStats(ENV);
+      ctx = statsBlock(stats) + "\n\nPROVIDER HEALTH:\n" + (await providerHealthLine(ENV));
+    } catch (e) {}
+    const ans = await adminAi(
+      "You are the Super AI admin assistant. The owner just said: \"" + text + "\"\n" +
+      "Decide the most helpful action.\n" +
+      "• If you can fully handle it yourself, reply with plain helpful text (HTML allowed, no markdown).\n" +
+      "• If a concrete admin command should run, reply with ONLY JSON: {\"run\":[\"command\",\"another\"],\"args\":{\"command\":\"arg text\"}} where command is one of: " +
+      ADMIN_ACTIONS.join(", ") + ". Use 'broadcast'/'channel' with the message as arg, 'credits' with 'uid amount', 'setkey' with 'provider value'.\n" +
+      "• You may combine: send a short text answer AND run commands.\n" +
+      "When in doubt, give a useful answer using the context below and suggest the exact command to run.\n\nCONTEXT:\n" + ctx,
+      "");
+    // Try to parse a directive from the AI reply.
+    const dirMatch = ans.match(/\{[\s\S]*"run"[\s\S]*\}/);
+    let ran = false;
+    if (dirMatch) {
+      try {
+        const d = JSON.parse(dirMatch[0]);
+        const runs = Array.isArray(d.run) ? d.run : [d.run];
+        for (const c of runs) {
+          if (ADMIN_ACTIONS.indexOf(c) >= 0) {
+            const a = (d.args && d.args[c]) || "";
+            await runAdminAction(chatId, { action: c, arg: String(a) }, msg.from);
+            ran = true;
+          }
+        }
+      } catch (e) {}
+    }
+    // Always show the AI's prose (strip any JSON directive we acted on).
+    let prose = ans;
+    if (dirMatch) prose = ans.replace(dirMatch[0], "").trim();
+    if (prose) {
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId,
+        "🤖 " + htmlEscape(prose) + (ran ? "" : "\n\n<i>Say it like a command and I'll run it — e.g. \"post to channel: …\", \"broadcast: …\", \"show stats\".</i>"));
+    } else if (!ran) {
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🤖 " + htmlEscape(ans));
+    }
+  }
+  } catch (err) {
+    console.error("handleAdmin command error: " + (err && err.stack || err));
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Command failed: <code>" + htmlEscape(String((err && err.message) || err).slice(0, 200)) + "</code>").catch(function () {});
+  }
 }
 
 async function getStoreUserName(env, uid) {
@@ -2295,6 +3729,8 @@ async function supabaseUpsert(env, table, row, onConflict) {
 }
 
 /** Lightweight ping to keep a free Supabase project from auto-pausing. */
+/** Keep the free Supabase project from auto-pausing. A read alone is sometimes
+ *  ignored by Supabase's idle detector, so we also write a tiny heartbeat row. */
 async function supabaseKeepAlive(env) {
   const base = env.SUPABASE_URL || "";
   const key = env.SUPABASE_SERVICE_ROLE || "";
@@ -2303,15 +3739,46 @@ async function supabaseKeepAlive(env) {
     const res = await fetch(base + "/rest/v1/users?select=uid&limit=1", {
       headers: { apikey: key, Authorization: "Bearer " + key },
     });
-    return res.ok;
+    if (!res.ok) return false;
+    // Write a heartbeat so the project counts as "active" (prevents pause).
+    await fetch(base + "/rest/v1/heartbeat", {
+      method: "POST",
+      headers: { apikey: key, Authorization: "Bearer " + key, "content-type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify({ id: "keepalive", ts: Date.now() }),
+    }).catch(function () {});
+    return true;
   } catch (e) { return false; }
 }
 
-/** Create the mirror tables if missing (idempotent via RPC). */
+/** Create the mirror tables if missing (idempotent). Uses the Supabase
+ *  Management API SQL endpoint when an access token is available; the
+ *  service-role REST RPC path is kept as a fallback. */
 async function supabaseProvision(env) {
   const base = env.SUPABASE_URL || "";
   const key = env.SUPABASE_SERVICE_ROLE || "";
   if (!base || !key) return false;
+  const ref = (env.SUPABASE_PROJECT_ID || (base.split("//")[1] || "").split(".")[0] || "").trim();
+  const sql = [
+    "CREATE TABLE IF NOT EXISTS users (uid text PRIMARY KEY, email text, display_name text, points integer DEFAULT 0, lifetime_earned integer DEFAULT 0, premium_until integer DEFAULT 0, created_at bigint);",
+    "CREATE TABLE IF NOT EXISTS transactions (id bigserial PRIMARY KEY, uid text, type text, amount integer, reason text, ts bigint);",
+    "CREATE TABLE IF NOT EXISTS promo_codes (code text PRIMARY KEY, reward integer, created_at bigint);",
+    "CREATE TABLE IF NOT EXISTS promo_redemptions (code text, uid text, ts bigint, PRIMARY KEY (code, uid));",
+    "CREATE TABLE IF NOT EXISTS yt_subs (uid text PRIMARY KEY, subscribed boolean, checked_at bigint);",
+    "CREATE TABLE IF NOT EXISTS heartbeat (id text PRIMARY KEY, ts bigint);",
+    "CREATE TABLE IF NOT EXISTS heartbeat (id text PRIMARY KEY, ts bigint);",
+  ].join("\n");
+  // Preferred: Management API (can run DDL).
+  if (env.SUPABASE_ACCESS_TOKEN && ref) {
+    try {
+      const res = await fetch("https://api.supabase.com/v1/projects/" + ref + "/database/query", {
+        method: "POST",
+        headers: { "content-type": "application/json", Authorization: "Bearer " + env.SUPABASE_ACCESS_TOKEN },
+        body: JSON.stringify({ query: sql }),
+      });
+      if (res.ok) return true;
+    } catch (e) {}
+  }
+  // Fallback: try the legacy RPC (may not exist — ignored on failure).
   try {
     const res = await fetch(base + "/rest/v1/rpc/aaa_provision_mirror", {
       method: "POST",
@@ -2592,7 +4059,7 @@ async function weeklyPromo(env) {
     // Upload the video directly to YouTube.
     toYtVideo = await uploadVideoToYouTube(videoBuf,
       "Ari AI Promo " + promo.code + " — 7 Days Premium Free",
-      "Limited promo! Use code " + promo.code + " in the Ari AI app to unlock 7 days of Premium. First 30 users only.\n\nGet the app: https://aaa-ai-bot.aaateam.workers.dev/download",
+      "Limited promo! Use code " + promo.code + " in the Ari AI app to unlock 7 days of Premium. First 30 users only.\n\nGet the app: https://aaa-store.aaateam.workers.dev/store",
       env);
   } else {
     // Fallback: post a generated image to the channel.
@@ -2626,6 +4093,8 @@ async function weeklyPromo(env) {
  * the community active without manual effort.
  */
 async function autoPostAi(env) {
+  // Self-improving topic selection: prefer topics that previously scored well,
+  // and let the ops AI use the open-source knowledge base for sharper copy.
   const topics = [
     "a short, punchy AI tip a beginner would love",
     "a clever ChatGPT / Gemini prompt idea people can try today",
@@ -2635,11 +4104,13 @@ async function autoPostAi(env) {
     "a myth about AI debunked in a friendly way",
   ];
   const topic = topics[Math.floor(Math.random() * topics.length)];
+  const kb = await kbContext(env, topic + " social media post AI app");
   const msg = await adminAi(
     "Write a friendly, upbeat Telegram channel post (2-3 sentences, 1-3 emojis) about " +
-    topic + " for our Ari AI app community. Mention Ari AI naturally. Output only the post text.", "");
+    topic + " for our Ari AI app community. Mention Ari AI naturally. Output only the post text." +
+    (kb ? "\n\nReference style ideas:\n" + kb : ""), "");
   const cleanMsg = (msg && msg.length > 5) ? msg : "✨ New AI trick just dropped — open Ari AI and try it now!";
-  const post = htmlEscape(cleanMsg) + "\n\n📲 Get the app: https://aaa-ai-bot.aaateam.workers.dev/download";
+  const post = htmlEscape(cleanMsg) + "\n\n📲 Get the app: https://aaa-store.aaateam.workers.dev/store";
 
   // 1) Generate a matching image and post it to the channel.
   const imgPrompt = "Ari AI app, " + topic + ", neon purple and pink gradient, modern flat illustration, 4k, no text";
@@ -2659,27 +4130,38 @@ async function autoPostAi(env) {
   } catch (e) {}
   if (!toChannel) toChannel = await postToChannel(post);
 
-  // 2) When json2video credits remain, render a short promo video and post it too.
+  // 2) Render a short promo video (Shotstack image-based pipeline) and post it,
+  //    then upload it to YouTube as a NEW video if the owner connected YouTube.
   let toYtVideo = false;
   try {
-    const j2vKey = await providerKey(env, "json2video", "JSON2VIDEO_KEY");
-    const bal = await json2videoBalance(env, j2vKey);
-    if (bal != null && bal > 5) {
-      const vbuf = await generatePromoVideo(cleanMsg, env);
-      if (vbuf) {
-        const form = new FormData();
-        form.append("chat_id", String(env.CHANNEL_ID || DEFAULT_CHANNEL_ID));
-        form.append("caption", post);
-        form.append("video", new Blob([vbuf], { type: "video/mp4" }), "aaa_tip.mp4");
-        const r = await fetch(TELEGRAM_API + (env.FREE_AI_BOT_TOKEN) + "/sendVideo", { method: "POST", body: form });
-        const j = await r.json().catch(function () { return {}; });
-        toYtVideo = !!j.ok;
-      }
+    const res = await generateVideoShotstack(cleanMsg, env, false);
+    const vbuf = res && res.buf ? res.buf : (res || null);
+    const vurl = res && res.url ? res.url : null;
+    if (vbuf) {
+      const form = new FormData();
+      form.append("chat_id", String(env.CHANNEL_ID || DEFAULT_CHANNEL_ID));
+      form.append("caption", post);
+      form.append("video", new Blob([vbuf], { type: "video/mp4" }), "aaa_tip.mp4");
+      const r = await fetch(TELEGRAM_API + (env.FREE_AI_BOT_TOKEN) + "/sendVideo", { method: "POST", body: form });
+      const j = await r.json().catch(function () { return {}; });
+      toYtVideo = !!j.ok;
+      // Upload to YouTube as a new video (stream the source URL when available).
+      try { await uploadVideoToYouTube(vurl || vbuf, "Super AI — " + cleanMsg.slice(0, 60), "Made with Super AI (Ari AI engine). Get the app: https://aaa-store.aaateam.workers.dev/store", env); } catch (_) {}
     }
   } catch (e) {}
 
   // 3) Keep the channel's latest YouTube video description in sync.
   const toYt = await postToYouTube(post, env);
+  // Teach the AI from this automated run (self-improving loop).
+  try { await recordLearning(env, "autopost", { topic: topic, toChannel: toChannel, toYtVideo: toYtVideo, ok: toChannel || toYtVideo }); } catch (_) {}
+  // Notify the private admin channel (AAA AI APP ADMIN).
+  try {
+    await adminChannelNotify(env, "Auto-Post", {
+      Topic: topic,
+      Channel: toChannel ? "✅" : "❌",
+      YouTubeVideo: toYtVideo ? "✅" : "❌",
+    });
+  } catch (_) {}
   return { toChannel: toChannel, toYt: toYt, toYtVideo: toYtVideo };
 }
 
@@ -2994,7 +4476,7 @@ async function handle(request, env) {
       if (secret !== (ENV.YT_UPLOAD_SECRET || "")) return json({ ok: false, error: "unauthorized" }, 401);
       const body = await request.json().catch(function () { return {}; });
       const title = body.title || "Super AI — Free AI Super App";
-      const description = body.description || "Super AI: one free app for chat, images, video, code and more (powered by the Ari AI engine). Get it free:\nhttps://aaa-ai-bot.aaateam.workers.dev/app.apk\nApp store: https://aaa-store.aaateam.workers.dev";
+      const description = body.description || "Super AI: one free app for chat, images, video, code and more (powered by the Ari AI engine). Get it free on the AAA App Store:\nhttps://aaa-store.aaateam.workers.dev/store";
       let videoBuf = null;
       if (body.key) {
         const obj = ENV.aaa_assets ? await ENV.aaa_assets.get(body.key) : null;
@@ -3058,7 +4540,9 @@ async function handle(request, env) {
     }
     if (request.method === "POST" && url.pathname === "/telegram/admin") {
       const update = await request.json().catch(function () { return {}; });
-      await handleAdmin(update);
+      // Process fully before responding so the worker stays alive for the work
+      // (Cloudflare freezes the isolate once we return). Telegram allows ~60s.
+      try { await handleAdmin(update); } catch (e) { console.error("admin webhook error: " + (e && e.stack || e)); }
       return new Response("ok");
     }
     if (request.method === "POST" && url.pathname === "/api/telegram-widget-verify") {
@@ -3114,8 +4598,17 @@ if (request.method === "GET" && url.pathname === "/api/search") {
         },
       });
     }
+    if (request.method === "GET" && url.pathname === "/api/health") {
+      const checks = {
+        kv: !!ENV.AAA_KV,
+        db: !!ENV.AAA_DB,
+        r2: !!ENV.aaa_assets,
+        adminBot: !!ENV.ADMIN_BOT_TOKEN,
+      };
+      const okAll = Object.values(checks).every(Boolean);
+      return json({ ok: okAll, ts: Date.now(), checks: checks, version: ((await ENV.AAA_KV.get("app_version_name")) || "?") });
+    }
     if (request.method === "GET" && url.pathname === "/api/app-version") {
-      const vc = parseInt((await ENV.AAA_KV.get("app_version_code")) || "0", 10) || 0;
       const vn = (await ENV.AAA_KV.get("app_version_name")) || "";
       const required = (await ENV.AAA_KV.get("app_update_required")) === "1";
       const changelog = (await ENV.AAA_KV.get("app_changelog")) || "";
@@ -3134,22 +4627,28 @@ if (request.method === "GET" && url.pathname === "/api/search") {
       // Serve the APK from the GitHub Release (authoritative, always the latest
       // build) via a 302 redirect. This avoids any stale R2 object/cache and
       // guarantees users get the correct universal APK.
-      const releaseUrl = "https://github.com/aaa-infinity/AAA-AI/releases/download/v2.2.9/app-release.apk";
+      const releaseUrl = "https://github.com/aaa-infinity/AAA-AI/releases/download/v2.2.14/app-release.apk";
       // Increment a live download counter (best-effort, never block).
       env.AAA_KV?.put("app_downloads", String((parseInt(await env.AAA_KV?.get("app_downloads") || "0", 10) || 0) + 1), { expirationTtl: 60 * 24 * 3600 }).catch(function () {});
       return Response.redirect(releaseUrl, 302);
     }
     // Download landing page.
     if (request.method === "GET" && (url.pathname === "/download" || url.pathname === "/")) {
-      const head = env.aaa_assets ? await env.aaa_assets.head(APK_KEY) : null;
-      const available = !!head;
-      const versionName = (await ENV.AAA_KV.get("app_version_name")) || "";
-      const changelog = (await ENV.AAA_KV.get("app_changelog")) || "";
-      let sizeLabel = "";
-      if (head && head.size) {
-        const mb = head.size / (1024 * 1024);
-        sizeLabel = (mb >= 100 ? Math.round(mb) : mb.toFixed(1)) + " MB";
-      }
+      const releaseUrl = "https://github.com/aaa-infinity/AAA-AI/releases/download/v2.2.14/app-release.apk";
+      let available = true, sizeLabel = "";
+      const ver = (await ENV.AAA_KV.get("app_version_name")) || "";
+      const chLog = (await ENV.AAA_KV.get("app_changelog")) || "";
+      try {
+        const headRes = await fetch(releaseUrl, { method: "HEAD", redirect: "follow" });
+        available = headRes.ok || headRes.status === 302;
+        const len = headRes.headers.get("content-length") || headRes.headers.get("x-github-content-length");
+        if (len) {
+          const mb = parseInt(len, 10) / (1024 * 1024);
+          sizeLabel = (mb >= 100 ? Math.round(mb) : mb.toFixed(1)) + " MB";
+        }
+      } catch (e) { available = true; }
+      const versionName = ver;
+      const changelog = chLog;
       let stats;
       const cached = await ENV.AAA_KV.get("live_stats");
       if (cached) { try { stats = JSON.parse(cached); } catch (e) {} }
@@ -3185,22 +4684,24 @@ export async function scheduled(controller, env) {
       : (await env.AAA_KV.get("admin_chat_id")) || "";
     if (adminId && env.ADMIN_BOT_TOKEN) {
       const stats = await gatherStats(env);
+      const kb = await kbContext(env, "daily operations report AI app growth");
       const report = await adminAi(
         "Write today's brief daily report: 2-3 sentences on how the service is doing " +
         "based on the metrics, then one actionable suggestion.",
-        statsBlock(stats));
+        statsBlock(stats) + "\n\nPROVIDER HEALTH:\n" + (await providerHealthLine(env)) + (kb ? "\n\nREFERENCE:\n" + kb : ""));
       await tgSend(env.ADMIN_BOT_TOKEN, adminId,
         "🌅 <b>Daily Report</b>\n" + htmlEscape(report) +
         "\n\n<code>" + htmlEscape(statsBlock(stats)) + "</code>");
-      // Proactively warn the owner if the video-AI (json2video) credits are low
-      // so a fresh key can be swapped before video generation breaks.
+      // Proactively warn the owner if any paid provider is low / unreachable,
+      // so a fresh key can be swapped before generation breaks.
       try {
-        const j2vKey = await providerKey(env, "json2video", "JSON2VIDEO_KEY");
-        const bal = await json2videoBalance(env, j2vKey);
-        if (bal != null && bal <= 20) {
+        const warns = await lowCreditWarnings(env);
+        if (warns && warns.length) {
           await tgSend(env.ADMIN_BOT_TOKEN, adminId,
-            "🔔 <b>json2video credits LOW</b>: " + bal + " left.\n" +
-            "Swap a new key now: /setkey json2video &lt;new_key&gt;");
+            "🔔 <b>Provider attention needed</b>:\n" + warns.join("\n") +
+            "\nSwap a key: tap 🔑 API Key, or say \"set <provider> key to …\".");
+          // Mirror warnings to the private admin channel.
+          try { await adminChannelNotify(env, "Provider Warning", { Warnings: warns.join("; ") }); } catch (_) {}
         }
       } catch (e) {}
       // Cache the latest report + stats so the website can show them live.
