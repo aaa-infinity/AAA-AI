@@ -43,11 +43,6 @@ class MainViewModel(
     val appContext: android.content.Context
 ) : ViewModel() {
 
-    init {
-        // Seed the daily-reward streak state so the UI can show it immediately.
-        viewModelScope.launch { _dailyReward.value = DailyRewards.state(appContext).first() }
-    }
-
     /** Active user id (null when signed out). Drives backend routing. */
     private val _userId = MutableStateFlow<String?>(null)
     val userId: StateFlow<String?> = _userId
@@ -337,5 +332,15 @@ class MainViewModel(
 
     companion object {
         const val REWARD_PER_AD = 200
+    }
+
+    // NOTE: init runs AFTER all property initializers above (Kotlin semantics),
+    // so every MutableStateFlow is already constructed when this coroutine fires.
+    init {
+        // Seed the daily-reward streak state so the UI can show it immediately.
+        // Guarded so a read failure can never crash startup.
+        viewModelScope.launch {
+            runCatching { _dailyReward.value = DailyRewards.state(appContext).first() }
+        }
     }
 }

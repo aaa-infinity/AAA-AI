@@ -1,4 +1,4 @@
-// Shared store module for the Ari AI App Store.
+// Shared store module for the AAA App Store.
 // Imported by BOTH workers (aaa-ai-bot + aaa-store) so they share the same
 // D1 (store_users / store_apps) + R2 (apk/icons) + KV (sessions/queue).
 
@@ -174,7 +174,7 @@ export async function requireUser(request, env) {
 // AI: listing generation + moderation (reuses askAi/adminAi from index.js)
 // ---------------------------------------------------------------------------
 const STORE_AI_PERSONA =
-  "You are Ari-Store-AI, the listing & moderation assistant for the Ari AI App Store, a free " +
+  "You are AAA-Store-AI, the listing & moderation assistant for the AAA App Store, a free " +
   "Android app store where anyone can publish apps. You write clean, friendly, non-spammy store " +
   "listings and you flag abuse. Reply in plain text, no markdown. For listings: produce a 1-sentence " +
   "short description, a 2-3 paragraph long description, a best-fit category from " +
@@ -220,7 +220,7 @@ function json(obj, status) { return new Response(JSON.stringify(obj), { status: 
 function storeShell(title, body, user) {
   const nav = '<nav class="nav"><div class="wrap"><div class="brand">' +
     '<a href="/download" style="color:inherit;text-decoration:none;display:flex;align-items:center;gap:10px">' +
-    '<img src="/api/asset/public/Logo.png" width="30" height="30" alt="">Super AI</a></div>' +
+    '<img src="/api/asset/public/aaa-store-logo.png" width="30" height="30" alt="">AAA App Store</a></div>' +
     '<div class="nav-actions"><a class="nav-fb" href="https://www.facebook.com/share/1BzWH5P2bF/" target="_blank" rel="noopener">f</a>' +
     '<a class="dl ghost" href="/download">Get app</a>' +
     (user ? '<a class="dl" href="/store/upload">Upload app</a>' : '<a class="dl" href="/store/login">Sign in</a>') +
@@ -267,7 +267,7 @@ function storeShell(title, body, user) {
     '.toggle{display:flex;gap:10px;margin:10px 0}.toggle button{flex:1;padding:10px;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#cfcfdd}' +
     '.toggle button.active{background:linear-gradient(135deg,#7c4dff,#ff4d9d);color:#fff;border-color:transparent}' +
     '</style></head><body>' + nav + '<div class="wrap">' + body + '</div>' +
-    '<footer>&copy; ' + new Date().getFullYear() + ' Super AI &middot; A free Android app store.</footer></body></html>';
+    '<footer>&copy; ' + new Date().getFullYear() + ' AAA App Store &middot; A free Android app store.</footer></body></html>';
 }
 
 function appCard(a) {
@@ -285,7 +285,7 @@ export function storePage(list, categories, user) {
     .concat(categories.map((c) =>
       '<span class="chip ' + (list.category === c ? 'active' : '') + '" onclick="location=\'/store?category=' + encodeURIComponent(c) + '\'">' + c + '</span>'
     )).join('');
-  const body = '<header class="hero"><h1>Super AI <span class="grad">App Store</span></h1>' +
+  const body = '<header class="hero"><h1>AAA <span class="grad">App Store</span></h1>' +
     '<p class="sub">A free, open Android app store. Anyone can publish — browse, download, and share apps.</p>' +
     '<a class="btn" href="' + (user ? '/store/upload' : '/store/login') + '">⬆ Publish your app</a></header>' +
     '<div class="bar"><input class="search" placeholder="Search apps…" onkeydown="if(event.key===\'Enter\')location=\'/store?q=\'+encodeURIComponent(this.value)"></div>' +
@@ -293,7 +293,7 @@ export function storePage(list, categories, user) {
     (list.apps.length ? '<div class="grid">' + list.apps.map(appCard).join('') + '</div>'
       : '<div class="empty"><div class="big">📦</div><p>No apps yet — be the first to publish!</p>' +
         '<a class="btn" style="margin-top:16px" href="' + (user ? '/store/upload' : '/store/login') + '">Publish an app</a></div>');
-  return storeShell("Super AI App Store", body, user);
+  return storeShell("AAA App Store", body, user);
 }
 
 export function storeDetailPage(a, user) {
@@ -309,7 +309,7 @@ export function storeDetailPage(a, user) {
     '<p style="color:#cfcfdd;margin:18px 0;line-height:1.7">' + escapeHtml(a.long_desc || a.short_desc || "") + '</p>' +
     '<div style="margin:20px 0">' + dl + '</div>' +
     '<div class="meta">⬇ ' + (a.downloads || 0) + ' downloads</div></div>';
-  return storeShell(a.name + " · Super AI Store", body, user);
+  return storeShell(a.name + " · AAA App Store", body, user);
 }
 
 export function uploadPage(user) {
@@ -339,7 +339,7 @@ export function uploadPage(user) {
     'if(m==="link"){body.append("apk_url",fd.get("apk_url")||"");}else{var f=fd.get("apk");if(f&&f.size)body.append("apk",f);}' +
     'var r=await fetch("/api/store/apps",{method:"POST",headers:{"x-session":new URLSearchParams(location.search).get("t")||localStorage.getItem("sess")||""},body:body});' +
     'var j=await r.json();document.getElementById("msg").textContent=j.ok?"✅ Submitted! Pending admin approval.":(j.error||"Failed");});</script></div>';
-  return storeShell("Publish · Super AI Store", body, user);
+  return storeShell("Publish · AAA App Store", body, user);
 }
 
 export function escapeHtml(s) {

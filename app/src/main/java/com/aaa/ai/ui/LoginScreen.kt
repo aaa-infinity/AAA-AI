@@ -1,6 +1,8 @@
 package com.aaa.ai.ui
 
 import android.widget.Toast
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -141,7 +143,16 @@ fun LoginScreen(
         }
 
         Button(
-            onClick = { authViewModel.startTelegramLogin() },
+            onClick = {
+                // If the Telegram app isn't installed, the deep link can't open,
+                // so fall back to the in-app web login widget.
+                val tgInstalled = runCatching {
+                    val i = Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/"))
+                    context.packageManager.resolveActivity(i, 0) != null
+                }.getOrDefault(false)
+                if (tgInstalled) authViewModel.startTelegramLogin()
+                else showTgWeb = true
+            },
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             shape = RoundedCornerShape(12.dp),
             enabled = tgState !is AuthViewModel.TelegramLoginState.Polling

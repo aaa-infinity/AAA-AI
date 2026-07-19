@@ -16,8 +16,8 @@ android {
         applicationId = "com.aaa.ai"
         minSdk = 24
         targetSdk = 35
-        versionCode = 17
-        versionName = "2.2.9"
+        versionCode = 18
+        versionName = "2.2.10"
 
         // Load APP_SHARED_SECRET from local.properties (gitignored) so the secret
         // is never baked into source control or the public APK's source.

@@ -115,14 +115,14 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
   return '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<meta name="theme-color" content="#0b0b13">' +
-    '<meta name="description" content="Super AI — unlimited free AI chat, image generation, downloaders and creative studio for Android.">' +
-    '<meta property="og:title" content="Super AI — Free AI Super App">' +
-    '<meta property="og:description" content="Unlimited free AI chat, image generation & downloaders. Download for Android.">' +
-    '<meta property="og:image" content="/api/asset/public/Logo.png">' +
+    '<meta name="description" content="AAA App Store — download Super AI and free Android apps. Unlimited free AI chat, image generation, downloaders and creative studio.">' +
+    '<meta property="og:title" content="AAA App Store — Free Android Apps">' +
+    '<meta property="og:description" content="The free Android app store. Get Super AI and community apps — no Play Store required.">' +
+    '<meta property="og:image" content="/api/asset/public/aaa-store-logo.png">' +
     '<meta property="og:type" content="website">' +
-    '<link rel="icon" href="/api/asset/public/Logo.png" type="image/png">' +
-    '<link rel="apple-touch-icon" href="/api/asset/public/Logo.png">' +
-    '<title>Super AI — Free AI Super App for Android</title>' +
+    '<link rel="icon" href="/api/asset/public/aaa-store-logo.png" type="image/png">' +
+    '<link rel="apple-touch-icon" href="/api/asset/public/aaa-store-logo.png">' +
+    '<title>AAA App Store — Free Android Apps</title>' +
     '<style>' +
     '*{box-sizing:border-box;margin:0;padding:0}:root{color-scheme:dark}' +
     'html{scroll-behavior:smooth}' +
@@ -229,6 +229,13 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '.tg a:hover{background:rgba(34,158,217,.24)}' +
     'footer{text-align:center;padding:40px 20px;color:#6f6f82;font-size:.85rem;border-top:1px solid rgba(255,255,255,.06)}' +
     '.divider{height:1px;background:rgba(255,255,255,.06);max-width:960px;margin:0 auto}' +
+    '/* featured app card (Super AI) */' +
+    '.featured{display:flex;align-items:center;gap:14px;background:rgba(255,255,255,.04);border:1px solid rgba(124,77,255,.3);' +
+    'border-radius:18px;padding:14px 18px;text-decoration:none;max-width:420px}' +
+    '.featured img{border-radius:14px;box-shadow:0 4px 14px rgba(124,77,255,.35)}' +
+    '.featured .get{margin-left:auto;background:linear-gradient(135deg,#7c4dff,#ff4d9d);color:#fff;font-weight:800;' +
+    'padding:9px 16px;border-radius:50px;font-size:.85rem;white-space:nowrap}' +
+    '.featured:hover{border-color:rgba(124,77,255,.6);transform:translateY(-2px);transition:.15s}' +
     '/* live stats */' +
     '.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:34px}' +
     '@media(max-width:560px){.stats{grid-template-columns:repeat(2,1fr)}}' +
@@ -268,7 +275,7 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '@media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;transition:none}.hero::before{animation:none}}' +
     '</style></head><body>' +
     '<nav class="nav"><div class="wrap"><div class="brand">' +
-    '<img src="/api/asset/public/Logo.png" width="30" height="30" alt="Super AI">Super AI</div>' +
+    '<img src="/api/asset/public/aaa-store-logo.png" width="30" height="30" alt="AAA App Store">AAA App Store</div>' +
     '<div class="nav-links">' +
     '<a href="#features">Features</a>' +
     '<a href="#store">App Store</a>' +
@@ -280,9 +287,9 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '<a class="sticky-cta" href="/app.apk">⬇ Get Super AI Free</a>' +
     // hero
     '<header class="hero"><div class="wrap">' +
-    '<img class="logo" src="/api/asset/public/Logo.png" width="104" height="104" alt="Super AI logo">' +
-    '<h1>Super AI <span class="grad">Super App</span></h1>' +
-    '<p class="sub">Unlimited free AI chat, image generation, downloaders &amp; a full creative studio — all in one beautiful Android app.</p>' +
+    '<img class="logo" src="/api/asset/public/aaa-store-logo.png" width="104" height="104" alt="AAA App Store logo">' +
+    '<h1>AAA <span class="grad">App Store</span></h1>' +
+    '<p class="sub">The free Android app store. Get <b>Super AI</b> — unlimited free AI chat, image generation, downloaders &amp; a full creative studio — plus community apps, all in one place.</p>' +
     cta +
     '<div class="meta">Android 7.0+ &middot; ' + (ver || 'Free forever') + (available ? '' : ' &middot; releasing soon') + '</div>' +
     '<div class="safe">✓ Safe APK &middot; SHA-checked &middot; auto-updates</div>' +
@@ -324,10 +331,10 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '</div></div></section>' +
     '<div class="divider"></div>' +
     // comparison
-    '<section><div class="wrap"><h2 class="reveal">Why Super AI</h2>' +
+    '<section><div class="wrap"><h2 class="reveal">Why AAA App Store</h2>' +
     '<p class="lead reveal">Everything paid apps charge for — free, in one place.</p>' +
     '<div class="cmp reveal"><table>' +
-    '<thead><tr><th>Feature</th><th class="us">Super AI</th><th>Paid apps</th></tr></thead>' +
+    '<thead><tr><th>Feature</th><th class="us">AAA App Store</th><th>Paid apps</th></tr></thead>' +
     '<tbody>' +
     '<tr><td>AI chat (multiple models)</td><td class="yes">✓ Free</td><td class="no">✗ Subscription</td></tr>' +
     '<tr><td>Image generation</td><td class="yes">✓ Free</td><td class="no">✗ Paywall</td></tr>' +
@@ -399,14 +406,20 @@ function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
     '" target="_blank" rel="noopener">Share Super AI with friends</a></div></div></section>' +
     '<div class="divider"></div>' +
     // app store
-    '<section id="store"><div class="wrap"><h2 class="reveal">Super AI App Store</h2>' +
-    '<p class="lead reveal">Publish your own apps or grab community-made tools — free, no approval paywalls.</p>' +
-    '<div class="reveal" style="text-align:center;margin-top:8px">' +
-    '<a class="btn primary" href="https://aaa-store.aaateam.workers.dev">Browse the App Store →</a>' +
-    '<p style="color:#8a8aa0;font-size:.85rem;margin-top:10px">Anyone can submit an app. Approved apps go live instantly for all users.</p>' +
-    '</div></div></section>' +
+    '<section id="store"><div class="wrap"><h2 class="reveal">AAA App Store</h2>' +
+    '<p class="lead reveal">Get Super AI — plus community-made apps. Free, open, no Play Store required.</p>' +
+    '<div class="reveal" style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;justify-content:center;margin-top:14px">' +
+    '<a class="featured" href="/app.apk">' +
+    '<img src="/api/asset/public/aaa-store-logo.png" width="56" height="56" alt="Super AI">' +
+    '<div style="text-align:left"><div style="font-weight:800;font-size:1.05rem">Super AI</div>' +
+    '<div style="color:#a6a6b8;font-size:.85rem">Free all-in-one AI: chat, images, downloaders &amp; studio</div></div>' +
+    '<span class="get">Get it ↓</span></a>' +
+    '<a class="btn primary" href="https://aaa-store.aaateam.workers.dev">Browse all apps →</a>' +
+    '</div>' +
+    '<p style="color:#8a8aa0;font-size:.85rem;margin-top:14px">Anyone can publish an app. Approved apps go live instantly.</p>' +
+    '</div></section>' +
     // footer
-    '<footer>&copy; ' + new Date().getFullYear() + ' Super AI &middot; Made for creators.<br>' +
+    '<footer>&copy; ' + new Date().getFullYear() + ' AAA App Store &middot; Made for creators.<br>' +
     'By installing you agree to allow updates from this source.<br>' +
     '<a href="https://t.me/AAA_Free_Ai_bot">Telegram</a> &middot; ' +
     '<a href="https://www.facebook.com/share/1BzWH5P2bF/" target="_blank" rel="noopener">Facebook</a> &middot; ' +
@@ -3121,7 +3134,7 @@ if (request.method === "GET" && url.pathname === "/api/search") {
       // Serve the APK from the GitHub Release (authoritative, always the latest
       // build) via a 302 redirect. This avoids any stale R2 object/cache and
       // guarantees users get the correct universal APK.
-      const releaseUrl = "https://github.com/aaa-infinity/AAA-AI/releases/download/v2.2.8/app-release.apk";
+      const releaseUrl = "https://github.com/aaa-infinity/AAA-AI/releases/download/v2.2.9/app-release.apk";
       // Increment a live download counter (best-effort, never block).
       env.AAA_KV?.put("app_downloads", String((parseInt(await env.AAA_KV?.get("app_downloads") || "0", 10) || 0) + 1), { expirationTtl: 60 * 24 * 3600 }).catch(function () {});
       return Response.redirect(releaseUrl, 302);

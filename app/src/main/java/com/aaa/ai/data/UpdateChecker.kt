@@ -40,6 +40,9 @@ object UpdateChecker {
             if (!json.optBoolean("ok")) return@runCatching null
             val latest = json.optInt("versionCode", 0)
             val current = currentVersionCode(context)
+            // If we can't determine the current version (0), never prompt — a
+            // false "update available" is worse than a missed one.
+            if (current == 0) return@runCatching null
             if (latest <= current) return@runCatching null
             UpdateInfo(
                 versionCode = latest,
