@@ -96,15 +96,23 @@ export async function dbUpdateAppStatus(env, id, status, reason) {
   ).bind(status, reason || null, approvedAt, id).run();
 }
 
-// Mark an old approved app for the same package as superseded and delete its R2 blob.
+// When a newer version is approved, the OLD version is fully removed
+// (DB row + R2 APK + ratings + version history) so only the latest stays live.
 export async function dbSupersede(env, oldId, newId) {
+  await dbDeleteApp(env, oldId);
+}
+
+// Hard-delete an app: removes its R2 APK blob, ratings, version history and row.
+export async function dbDeleteApp(env, id) {
   if (!env.AAA_DB) return;
-  const old = await dbGetApp(env, oldId);
+  const old = await dbGetApp(env, id);
   if (!old) return;
-  await env.AAA_DB.prepare("UPDATE store_apps SET status='superseded' WHERE id=?").bind(oldId).run();
   if (old.apk_r2_key && env.aaa_assets) {
     try { await env.aaa_assets.delete(old.apk_r2_key); } catch (e) {}
   }
+  try { await env.AAA_DB.prepare("DELETE FROM store_ratings WHERE app_id = ?").bind(id).run(); } catch (e) {}
+  try { await env.AAA_DB.prepare("DELETE FROM store_versions WHERE app_id = ?").bind(id).run(); } catch (e) {}
+  try { await env.AAA_DB.prepare("DELETE FROM store_apps WHERE id = ?").bind(id).run(); } catch (e) {}
 }
 
 export async function dbIncDownloads(env, id) {
@@ -284,20 +292,39 @@ export async function aiGenerateListing(askAi, name, userShort, userLong) {
   const prompt = STORE_AI_PERSONA + "\n\nAPP NAME: " + name +
     "\nUSER SHORT: " + (userShort || "(none)") +
     "\nUSER LONG: " + (userLong || "(none)") +
-    "\n\nReturn JSON only: {\"short_desc\":\"...\",\"long_desc\":\"...\",\"category\":\"...\",\"tags\":\"...\"}";
+    "\n\nReturn JSON only: {\"short_desc\":\"...\",\"long_desc\":\"...\",\"category\":\"...\",\"tags\":\"...\",\"seo\":\"one-line search-friendly tagline\"}";
   try {
     const raw = await askAi(prompt, "gemini");
     return safeJson(raw);
   } catch (e) { return null; }
 }
 
+// Structured AI moderation. Returns a decision the worker can act on:
+//   decision: "approve" | "review" | "reject"
+//   reasons:  string[]  (human-readable, shown to admin + developer)
+//   risk_score: 0-100 (higher = riskier)
+//   auto_approve: boolean (true when safe enough to skip manual review)
 export async function aiModerate(adminAi, listing) {
-  const prompt = STORE_AI_PERSONA + "\n\nMODERATE THIS LISTING:\n" + JSON.stringify(listing) +
-    "\n\nReturn JSON only: {\"flag\":\"ok|review|spam\",\"score\":0-100,\"notes\":\"...\"}";
+  const prompt = "You are AAA-Store-AI, the senior moderator for the AAA App Store, a free Android " +
+    "app store. Review this submission and decide. Check for: trademark/brand impersonation " +
+    "(WhatsApp, Instagram, Netflix, TikTok, etc.), malware/phishing signals, spam, adult content, " +
+    "PII harvesting, and low-quality/placeholder listings.\n\nLISTING:\n" + JSON.stringify(listing) +
+    "\n\nReturn JSON only: {\"decision\":\"approve|review|reject\",\"risk_score\":0-100," +
+    "\"reasons\":[\"one line each, max 3\"],\"auto_approve\":true|false}";
   try {
     const raw = await adminAi(prompt);
-    return safeJson(raw) || { flag: "review", score: 50, notes: "AI unavailable; manual review." };
-  } catch (e) { return { flag: "review", score: 50, notes: "AI unavailable; manual review." }; }
+    const j = safeJson(raw);
+    if (!j) return { decision: "review", risk_score: 50, reasons: ["AI response unparseable; manual review."], auto_approve: false };
+    const decision = (j.decision === "approve" || j.decision === "reject") ? j.decision : "review";
+    return {
+      decision,
+      risk_score: Math.max(0, Math.min(100, parseInt(j.risk_score, 10) || 50)),
+      reasons: Array.isArray(j.reasons) ? j.reasons.slice(0, 3) : [String(j.reasons || j.notes || "Needs review.")],
+      auto_approve: decision === "approve" && (parseInt(j.risk_score, 10) || 50) <= 25 && j.auto_approve !== false,
+    };
+  } catch (e) {
+    return { decision: "review", risk_score: 50, reasons: ["AI unavailable; manual review."], auto_approve: false };
+  }
 }
 
 // ---------------------------------------------------------------------------

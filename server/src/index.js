@@ -15,7 +15,7 @@
 
 const TELEGRAM_API = "https://api.telegram.org/bot";
 // Reuse the redesigned store download page for the bot's /download route.
-import { downloadPage as uiDownloadPage } from "./storeShared.js";
+import { downloadPage as uiDownloadPage, dbSupersede, dbGetApp } from "./storeShared.js";
 // R2 object key for the downloadable Android APK (uploaded when the app is ready).
 const APK_KEY = "app/aaa-ai.apk";
 // Public "AAA FREE AI" Telegram channel (overridable via ENV.CHANNEL_ID secret).
@@ -2536,6 +2536,37 @@ async function handleAdmin(update) {
           });
         } catch (e) {}
       }
+    } else if (data && (data === "storeai:cleanold" || data === "storeai:autoapprove")) {
+      const authed = await isAdminAuthed(ENV, chatId);
+      if (!authed) {
+        await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🔐 Send: <code>/login Arif-Abid</code> first.");
+      } else if (data === "storeai:cleanold") {
+        // Reuse the /cleanold logic.
+        const dupes = await ENV.AAA_DB.prepare(
+          "SELECT package_name FROM store_apps WHERE status IN ('approved','superseded') GROUP BY package_name HAVING COUNT(*) > 1"
+        ).all();
+        const rows = (dupes && dupes.results) || [];
+        let removed = 0;
+        for (const d of rows) {
+          const apps = await ENV.AAA_DB.prepare(
+            "SELECT id, status, approved_at, submitted_at FROM store_apps WHERE package_name = ? ORDER BY COALESCE(approved_at,submitted_at) ASC"
+          ).bind(d.package_name).all();
+          const list = (apps && apps.results) || [];
+          for (let i = 0; i < list.length - 1; i++) { await dbSupersede(ENV, list[i].id, list[list.length - 1].id); removed++; }
+        }
+        await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🧹 Removed " + removed + " old version(s).");
+      } else if (data === "storeai:autoapprove") {
+        const pend = await ENV.AAA_DB.prepare("SELECT id FROM store_apps WHERE status='pending'").all();
+        const list = (pend && pend.results) || [];
+        let n = 0;
+        for (const r of list) { await approveApp(ENV, r.id); n++; }
+        await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ Auto-approved " + n + " pending app(s).");
+      }
+      try {
+        await tgApi(ENV.ADMIN_BOT_TOKEN, "editMessageReplyMarkup", {
+          chat_id: chatId, message_id: cq.message.message_id, reply_markup: { inline_keyboard: [] },
+        });
+      } catch (e) {}
     }
     return;
   }
@@ -3173,6 +3204,68 @@ async function handleAdmin(update) {
         await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ <b>AI moderation flag:</b> " + htmlEscape(risk.trim()));
       }
     }
+    return;
+  }
+
+  // ---- AI Store Management: catalog insights + smart actions ----
+  if (cmd === "/storeai") {
+    if (!ENV.AAA_DB) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Store DB unavailable."); return; }
+    const stats = await ENV.AAA_DB.prepare(
+      "SELECT status, COUNT(*) c FROM store_apps GROUP BY status"
+    ).all();
+    const byCat = await ENV.AAA_DB.prepare(
+      "SELECT category, COUNT(*) c FROM store_apps WHERE status='approved' GROUP BY category ORDER BY c DESC"
+    ).all();
+    const pending = await ENV.AAA_DB.prepare(
+      "SELECT id, name, category FROM store_apps WHERE status='pending' ORDER BY submitted_at ASC"
+    ).all();
+    const dupes = await ENV.AAA_DB.prepare(
+      "SELECT package_name, COUNT(*) c FROM store_apps WHERE status IN ('approved','superseded') GROUP BY package_name HAVING c > 1"
+    ).all();
+    const ctx = {
+      statusCounts: (stats && stats.results) || [],
+      topCategories: (byCat && byCat.results) || [],
+      pendingCount: (pending && pending.results || []).length,
+      pending: (pending && pending.results || []).slice(0, 10).map((a) => a.name + " (" + a.category + ")"),
+      duplicatePackages: (dupes && dupes.results || []),
+    };
+    const ans = await adminAi(
+      "You are AAA-Store-AI, the store operations manager. Given this catalog snapshot, give a concise " +
+      "3-5 bullet operations report: health, category gaps, pending backlog, duplicate/old versions to clean, " +
+      "and 2-3 concrete recommended actions. Plain text, no markdown headers.",
+      JSON.stringify(ctx)
+    );
+    let out = "🤖 <b>Store AI — Operations Report</b>\n\n" + (ans || "AI unavailable.");
+    if (ctx.duplicatePackages.length) {
+      out += "\n\n🧹 Found " + ctx.duplicatePackages.length + " package(s) with old versions — use /cleanold to remove them.";
+    }
+    const kb = { inline_keyboard: [[
+      { text: "🧹 Clean old versions", callback_data: "storeai:cleanold" },
+      { text: "✅ Auto-approve safe", callback_data: "storeai:autoapprove" },
+    ]] };
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, out, { reply_markup: kb });
+    return;
+  }
+
+  if (cmd === "/cleanold") {
+    if (!ENV.AAA_DB) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Store DB unavailable."); return; }
+    const dupes = await ENV.AAA_DB.prepare(
+      "SELECT package_name FROM store_apps WHERE status IN ('approved','superseded') GROUP BY package_name HAVING COUNT(*) > 1"
+    ).all();
+    const rows = (dupes && dupes.results) || [];
+    let removed = 0;
+    for (const d of rows) {
+      const apps = await ENV.AAA_DB.prepare(
+        "SELECT id, status, approved_at, submitted_at FROM store_apps WHERE package_name = ? ORDER BY COALESCE(approved_at,submitted_at) ASC"
+      ).bind(d.package_name).all();
+      const list = (apps && apps.results) || [];
+      // Keep the newest; delete the rest.
+      for (let i = 0; i < list.length - 1; i++) {
+        await dbSupersede(ENV, list[i].id, list[list.length - 1].id);
+        removed++;
+      }
+    }
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🧹 Removed " + removed + " old version(s). Only the latest of each package remains.");
     return;
   }
 

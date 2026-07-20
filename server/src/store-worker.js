@@ -2,7 +2,7 @@
 // Shares D1/R2/KV with Worker 1 (aaa-ai-bot). Auth/sessions are cross-worker
 // because the session token is just a KV key both workers can read.
 import {
-  STORE_CATEGORIES, dbUpsertUser, dbInsertApp, dbGetApp, dbGetAppByPackage,
+  STORE_CATEGORIES, dbUpsertUser, dbGetUser, dbInsertApp, dbGetApp, dbGetAppByPackage,
   dbUpdateAppStatus, dbSupersede, dbIncDownloads, dbListApps,
   pushPending, removePending, getPendingList, createSession, getSessionUid,
   requireUser, aiGenerateListing, aiModerate, storePage, storeDetailPage,
@@ -20,6 +20,25 @@ async function requireAdmin(request, env) {
   return { uid };
 }
 
+// Notify the app owner (via the Login bot) about a moderation decision.
+async function notifyOwner(env, appId, decision, message) {
+  if (!env.AAA_DB || !env.LOGIN_BOT_TOKEN) return;
+  try {
+    const a = await env.AAA_DB.prepare("SELECT owner_uid, name FROM store_apps WHERE id = ?").bind(appId).first();
+    if (!a) return;
+    const u = await dbGetUser(env, a.owner_uid);
+    const tg = u && u.telegram_id;
+    if (!tg) return;
+    const txt = decision === "approved"
+      ? "✅ Your app <b>" + (a.name || "app") + "</b> was approved and is now live on the AAA App Store!\n" + (message || "")
+      : "⚠️ Your app <b>" + (a.name || "app") + "</b> was not published.\nReason: " + (message || "did not pass review.");
+    await fetch("https://api.telegram.org/bot" + env.LOGIN_BOT_TOKEN + "/sendMessage", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: tg, text: txt, parse_mode: "HTML" }),
+    }).catch(() => {});
+  } catch (e) {}
+}
+
 async function handleStore(request, env) {
   ENV = env || {};
   const url = new URL(request.url);
@@ -30,7 +49,8 @@ async function handleStore(request, env) {
     const cat = url.searchParams.get("category") || "";
     const q = url.searchParams.get("q") || "";
     const page = parseInt(url.searchParams.get("page") || "0", 10) || 0;
-    const list = await dbListApps(env, { status: "approved", category: cat, q: q, page: page });
+    // Fetch all approved apps; client-side tabs handle category/search filtering.
+    const list = await dbListApps(env, { status: "approved", category: "", q: "", page: 0 });
     const token = request.headers.get("x-session") || "";
     const uid = await getSessionUid(env, token);
     const user = uid ? await dbUpsertUser(env, { uid }) : null;
@@ -186,15 +206,18 @@ async function handleStore(request, env) {
       }
     }
 
-    // AI enrich listing (fail-soft).
+    // AI enrich listing (fail-soft): descriptions, category, tags, SEO tagline.
     let short_desc = (fields.short_desc || "").trim();
     let long_desc = (fields.long_desc || "").trim();
     let finalCategory = category;
+    let aiTags = "", aiSeo = "";
     const ai = await aiGenerateListing(askAi, name, short_desc, long_desc);
     if (ai) {
       if (!short_desc && ai.short_desc) short_desc = ai.short_desc;
       if (!long_desc && ai.long_desc) long_desc = ai.long_desc;
       if (ai.category && STORE_CATEGORIES.includes(ai.category)) finalCategory = ai.category;
+      if (ai.tags) aiTags = ai.tags;
+      if (ai.seo) aiSeo = ai.seo;
     }
 
     const id = "app_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
@@ -205,32 +228,46 @@ async function handleStore(request, env) {
       apk_url, apk_r2_key, apk_size, min_android: (fields.min_android || "").trim(),
       status: "pending",
     });
+    // Persist AI-generated tags / SEO so the store can surface them.
+    await env.AAA_DB.prepare("UPDATE store_apps SET tags=?, seo=? WHERE id=?")
+      .bind(aiTags, aiSeo, id).run();
 
-    // AI moderation pre-check.
+    // AI moderation pre-check (structured decision).
     const moderation = await aiModerate(adminAi, { name, short_desc, long_desc, category: finalCategory, apk_url, icon_url: fields.icon_url });
     await env.AAA_DB.prepare("UPDATE store_apps SET moderation = ? WHERE id = ?").bind(JSON.stringify(moderation), id).run();
 
-    if (moderation.flag === "spam") {
-      await dbUpdateAppStatus(env, id, "rejected", "Auto-moderation: " + (moderation.notes || "spam"));
-      await env.AAA_KV?.put(rlKey, String(used + 1), { expirationTtl: 3600 });
-      return json({ ok: false, error: "rejected by automated review: " + (moderation.notes || "") }, 422);
-    }
-    await pushPending(env, id);
     await env.AAA_KV?.put(rlKey, String(used + 1), { expirationTtl: 3600 });
-    // Notify admin (chat + private admin channel).
+
+    // AI-managed store: auto-approve clearly safe apps; auto-reject spam;
+    // everything else waits for light human review.
+    if (moderation.decision === "reject") {
+      const why = (moderation.reasons || []).join("; ");
+      await dbUpdateAppStatus(env, id, "rejected", "AI auto-review: " + why);
+      await notifyOwner(env, id, "rejected", why);
+      return json({ ok: false, error: "rejected by automated review: " + why }, 422);
+    }
+    if (moderation.decision === "approve" && moderation.auto_approve) {
+      // Supersede any previously-approved same package.
+      if ((fields.package_name || "").trim()) {
+        const prev = await dbGetAppByPackage(env, fields.package_name.trim());
+        if (prev && prev.id !== id && prev.status === "approved") await dbSupersede(env, prev.id, id);
+      }
+      await dbUpdateAppStatus(env, id, "approved", "AI auto-approved");
+      await notifyOwner(env, id, "approved", "Your app passed automated review and is now live.");
+      return json({ ok: true, id: id, status: "approved", auto: true, moderation: moderation });
+    }
+    // Otherwise: queue for human review.
+    await pushPending(env, id);
     if (env.ADMIN_BOT_TOKEN && env.ADMIN_CHAT_ID) {
-      const note = moderation.flag === "review" ? " ⚠ AI flagged for review: " + (moderation.notes || "") : "";
+      const why = (moderation.reasons || []).join("; ");
       await fetch("https://api.telegram.org/bot" + env.ADMIN_BOT_TOKEN + "/sendMessage", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ chat_id: env.ADMIN_CHAT_ID, text: "📦 New app submitted: " + name + note + "\nReview: /review" }),
+        body: JSON.stringify({ chat_id: env.ADMIN_CHAT_ID, text: "📦 New app: " + name + " [" + finalCategory + "]\nAI: " + (moderation.decision) + " (" + moderation.risk_score + "/100)" + (why ? " — " + why : "") + "\nReview: /review" }),
       }).catch(() => {});
     }
     adminChannelNotify(env, "New App Submission", {
-      "Channel": "AAA AI APP ADMIN",
-      "Name": name,
-      "Category": app.category || "Other",
-      "ID": id,
-      "AI Moderation": moderation.flag || "ok",
+      "Name": name, "Category": finalCategory, "ID": id,
+      "AI Decision": moderation.decision + " (" + moderation.risk_score + "/100)",
     }).catch(function () {});
     return json({ ok: true, id: id, status: "pending", moderation: moderation });
   }
@@ -240,10 +277,13 @@ async function handleStore(request, env) {
     const id = p.split("/")[4];
     const a = await dbGetApp(env, id);
     if (!a) return json({ ok: false, error: "not found" }, 404);
-    // Supersede any currently-approved app with the same package.
+    // Remove every older approved/superseded version of the same package so only
+    // this (latest) version remains live. Previous versions are deleted entirely.
     if (a.package_name) {
-      const cur = await dbGetAppByPackage(env, a.package_name);
-      if (cur && cur.id !== id) await dbSupersede(env, cur.id, id);
+      const rows = await env.AAA_DB.prepare(
+        "SELECT id FROM store_apps WHERE package_name = ? AND id != ? AND status IN ('approved','superseded')"
+      ).bind(a.package_name, id).all();
+      for (const r of (rows && rows.results) || []) await dbSupersede(env, r.id, id);
     }
     await dbUpdateAppStatus(env, id, "approved", null);
     await removePending(env, id);
