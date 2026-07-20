@@ -1420,6 +1420,31 @@ async function aiVideoBrief(text, env) {
   return { prompt: text.slice(0, 120), type: "general" };
 }
 
+/** Turn the user's idea into a unique Short script + 4 on-screen captions so every
+ *  video is on-topic and feels hand-made (not a recycled template). Falls back to
+ *  safe defaults if the AI call fails. */
+async function aiVideoScript(idea, type, env) {
+  type = (type || "general").toLowerCase();
+  const kind = type === "promo" || type === "promocode" ? "a promo announcing a free premium drop"
+    : type === "ad" || type === "app" ? "an app advertisement"
+    : type === "tip" ? "a quick AI tip" : "a fun, shareable clip";
+  try {
+    const raw = await adminAi(
+      "You are writing a " + kind + " for the 'Super AI' / 'Ari AI' app (a free all-in-one AI assistant: chat, images, downloads, code).\n" +
+      "The creator's idea: \"" + (idea || "show how awesome Super AI is") + "\"\n" +
+      "Return ONLY a tiny JSON: {\"script\":\"a spoken voiceover, 2 short sentences, friendly, max 40 words, no hashtags\",\"captions\":[\"4 short on-screen lines, each <=6 words, no punctuation\"]}.\n" +
+      "Make it specific to the idea.", "");
+    const m = (raw || "").match(/\{[\s\S]*\}/);
+    if (m) {
+      const o = JSON.parse(m[0]);
+      const script = (o.script && o.script.trim()) || "";
+      const caps = Array.isArray(o.captions) ? o.captions.filter(Boolean).slice(0, 4) : [];
+      if (script) return { script: script.slice(0, 300), captions: caps.length ? caps.map((c) => String(c).slice(0, 30)) : null };
+    }
+  } catch (e) {}
+  return null;
+}
+
 /** Refine a free-text reply into a broadcast message. */
 async function aiBroadcastBrief(text, env) {
   try {
@@ -1780,26 +1805,39 @@ async function generateVideoShotstack(prompt, env, useProd, vertical, type, prom
     imgThemes = [safe + " futuristic", safe + " app UI neon", safe + " abstract energy", safe + " cinematic scene"];
   }
 
+  // Improve "all": generate a unique, on-topic script + captions from the user's
+  // idea via the AI, so no two Shorts feel templated. Falls back to the type
+  // defaults above if the AI call fails.
+  const ai = await aiVideoScript(safe || prompt, type, env);
+  if (ai && ai.script) {
+    script = ai.script;
+    if (ai.captions && ai.captions.length) sceneCaptions = ai.captions;
+  }
+
   // Generate 4 AI images (one per scene) in PARALLEL, each with its own seed so
   // they look different. Store to R2, serve via /api/asset (Sandbox can't fetch
   // Pollinations' 302-redirect URLs). Bounded per-request timeout.
   const baseUrl = "https://image.pollinations.ai/prompt/";
   const fetchImg = async (p, i) => {
-    const ac = new AbortController();
-    const to = setTimeout(() => ac.abort(), 15000);
-    try {
-      const s = seed + i * 7919;
-      const u = baseUrl + encodeURIComponent("Cinematic vertical " + p + twist + ", " + style + ", 9:16, " + mood) +
-        "?width=" + iw + "&height=" + ih + "&nologo=true&model=flux&enhance=true&seed=" + s;
-      const r = await fetch(u, { signal: ac.signal });
-      if (!r.ok) return null;
-      const ct = r.headers.get("content-type") || "";
-      if (ct.indexOf("image") < 0) return null;
-      const buf = await r.arrayBuffer();
-      const k = "temp/shotstack_" + Date.now() + "_" + i + ".jpg";
-      if (env.aaa_assets) await env.aaa_assets.put(k, buf, { httpMetadata: { contentType: "image/jpeg" } });
-      return origin + "/api/asset/" + k;
-    } catch (e) { return null; } finally { clearTimeout(to); }
+    const tryOnce = async (promptTxt) => {
+      const ac = new AbortController();
+      const to = setTimeout(() => ac.abort(), 15000);
+      try {
+        const s = seed + i * 7919;
+        const u = baseUrl + encodeURIComponent("Cinematic vertical " + promptTxt + twist + ", " + style + ", 9:16, " + mood) +
+          "?width=" + iw + "&height=" + ih + "&nologo=true&model=flux&enhance=true&seed=" + s;
+        const r = await fetch(u, { signal: ac.signal });
+        if (!r.ok) return null;
+        const ct = r.headers.get("content-type") || "";
+        if (ct.indexOf("image") < 0) return null;
+        const buf = await r.arrayBuffer();
+        const k = "temp/shotstack_" + Date.now() + "_" + i + ".jpg";
+        if (env.aaa_assets) await env.aaa_assets.put(k, buf, { httpMetadata: { contentType: "image/jpeg" } });
+        return origin + "/api/asset/" + k;
+      } catch (e) { return null; } finally { clearTimeout(to); }
+    };
+    // Retry once with a simplified prompt if the first attempt fails.
+    return (await tryOnce(p)) || (await tryOnce("abstract " + style + " gradient, 9:16"));
   };
   const results = await Promise.all(imgThemes.map((p, i) => fetchImg(p, i)));
   const imageUrls = results.filter(Boolean);
@@ -1816,8 +1854,13 @@ async function generateVideoShotstack(prompt, env, useProd, vertical, type, prom
     if (img) {
       clips.push({ asset: { type: "image", src: img }, start: t, length: sceneLen, effect: effects[i % effects.length], transition: { in: "fade" } });
     } else {
+      // Graceful fallback when image generation fails: a branded title card
+      // instead of a blank gap, so the Short is never empty.
       clips.push({ asset: { type: "title", text: titleText, style: "subtitle", size: "small" }, start: t, length: sceneLen, position: "center" });
     }
+    // One small caption per scene (bottom) — improves retention, no doubling.
+    const cap = sceneCaptions[i];
+    if (cap) clips.push({ asset: { type: "title", text: cap, style: "subtitle", size: "small" }, start: t, length: sceneLen, position: "bottom" });
     if (env.aaa_assets) clips.push({ asset: { type: "image", src: origin + "/api/asset/public/aaa-store-logo.png" }, start: t, length: sceneLen, position: "topRight", scale: 0.12, opacity: 0.8 });
     t += sceneLen;
   }
