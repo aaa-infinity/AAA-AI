@@ -37,3 +37,6 @@ app/keystore_pass.txt
 .wrangler/
 server/.wrangler/
 .credentials.local
+
+# 36MB padding asset (not source)
+app/src/main/assets/app_assets_pad.bin

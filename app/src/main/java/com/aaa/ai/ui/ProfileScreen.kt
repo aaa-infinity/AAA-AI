@@ -17,8 +17,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.Diamond
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Notifications
@@ -63,7 +65,7 @@ import com.aaa.ai.AuthViewModel
 import com.aaa.ai.MainViewModel
 import com.aaa.ai.data.AppSettings
 import com.aaa.ai.data.PointsTransaction
-import com.aaa.ai.data.TelegramLink
+import com.aaa.ai.data.TelegramAuth
 import com.aaa.ai.data.UserProfile
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -85,10 +87,7 @@ fun ProfileScreen(
     val userId by mainViewModel.userId.collectAsState()
     var editingName by remember { mutableStateOf(false) }
     var nameDraft by remember { mutableStateOf(profile.name) }
-    var showLinkDialog by remember { mutableStateOf(false) }
-    var linkCode by remember { mutableStateOf("") }
-    var linkBusy by remember { mutableStateOf(false) }
-    var linkMsg by remember { mutableStateOf<String?>(null) }
+    var clearMsg by remember { mutableStateOf<String?>(null) }
     var promoCode by remember { mutableStateOf("") }
     var promoBusy by remember { mutableStateOf(false) }
     var ytVerifying by remember { mutableStateOf(false) }
@@ -96,8 +95,7 @@ fun ProfileScreen(
     var showPromoGuide by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    val tgSession by com.aaa.ai.data.TelegramAuthSession.sessionFlow(ctx)
-        .collectAsState(initial = com.aaa.ai.data.TelegramAuthSession.Session())
+    val tgSession by TelegramAuth.sessionFlow.collectAsState(initial = TelegramAuth.Session())
     var clearing by remember { mutableStateOf(false) }
     val avatarPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
@@ -105,13 +103,33 @@ fun ProfileScreen(
 
     LaunchedEffect(profile.name) { nameDraft = profile.name }
     LaunchedEffect(tgSession.chatId) {
-        if (!tgSession.chatId.isNullOrBlank()) mainViewModel.syncReferrals(tgSession.chatId)
+        if (tgSession.verified && mainViewModel.userId.value?.startsWith("tg_") == true) {
+            mainViewModel.syncReferrals(tgSession.chatId)
+        }
     }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        if (tgSession.verified) {
+            item {
+                Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth()) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = androidx.compose.ui.graphics.Color(0xFF229ED9))
+                        Column(modifier = Modifier.padding(start = 12.dp)) {
+                            Text("Telegram Account", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                tgSession.profile.displayName.ifBlank { "@${tgSession.profile.username}".ifBlank { tgSession.chatId } },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         item {
             Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -178,10 +196,6 @@ fun ProfileScreen(
             }
         }
 
-        if (tgSession.verified) {
-            item { TelegramProfileCard(tgSession) }
-        }
-
         item {
             Button(onClick = { /* earn handled via top bar AdMob */ }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Filled.Star, contentDescription = null)
@@ -190,18 +204,11 @@ fun ProfileScreen(
         }
 
         item {
-            OutlinedButton(onClick = { showLinkDialog = true }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Filled.Chat, contentDescription = null)
-                Text("  Link Telegram")
-            }
-        }
-
-        item {
             OutlinedButton(
                 onClick = { onToggleTheme(!isDark) },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Icon(Icons.Filled.MenuBook, contentDescription = null)
+                Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null)
                 Text(if (isDark) "  Switch to Light theme" else "  Switch to Dark theme")
             }
         }
@@ -301,7 +308,7 @@ fun ProfileScreen(
             Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Chat, contentDescription = null, tint = androidx.compose.ui.graphics.Color(0xFF1877F2))
+                        Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null, tint = androidx.compose.ui.graphics.Color(0xFF1877F2))
                         Text("  Join our Facebook community", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 8.dp))
                     }
                     Text("Tips, updates and giveaways — follow Ari AI on Facebook.",
@@ -310,7 +317,7 @@ fun ProfileScreen(
                         onClick = { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://www.facebook.com/share/1BzWH5P2bF/"))) },
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                     ) {
-                        Icon(Icons.Filled.Chat, contentDescription = null)
+                        Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null)
                         Text("  Follow on Facebook")
                     }
                 }
@@ -353,7 +360,7 @@ fun ProfileScreen(
                     scope.launch {
                         val n = com.aaa.ai.data.CleanupManager.clearAllChats(ctx)
                         clearing = false
-                        linkMsg = "Cleared $n chat conversation(s)."
+                        clearMsg = "Cleared $n chat conversation(s)."
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -364,11 +371,17 @@ fun ProfileScreen(
             }
         }
 
+        if (clearMsg != null) {
+            item { Text(clearMsg!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+        }
+
         item {
             val invites by mainViewModel.referralCount.collectAsState()
             OutlinedButton(
                 onClick = {
-                    val refLink = mainViewModel.referralLink(tgSession.chatId)
+                    val refLink = mainViewModel.referralLink(
+                        if (userId?.startsWith("tg_") == true) tgSession.chatId else userId
+                    )
                     val downloadUrl = ctx.getString(com.aaa.ai.R.string.app_download_url)
                     val share = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                         type = "text/plain"
@@ -390,95 +403,9 @@ fun ProfileScreen(
 
         item {
             OutlinedButton(onClick = { authViewModel.signOut() }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Filled.Logout, contentDescription = null)
+                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null)
                 Text("  Sign Out")
             }
-        }
-    }
-
-    if (showLinkDialog) {
-        AlertDialog(
-            onDismissRequest = { if (!linkBusy) showLinkDialog = false },
-            title = { Text("Link Telegram") },
-            text = {
-                Column {
-                    Text("Open @AAA_Login_bot and tap Start — it will send you a code and (optionally) let you share your phone number. Enter the code below.")
-                    if (linkMsg != null) Text(linkMsg!!, modifier = Modifier.padding(top = 8.dp))
-                    OutlinedTextField(
-                        value = linkCode, onValueChange = { linkCode = it },
-                        label = { Text("Code") }, singleLine = true,
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        linkBusy = true; linkMsg = null
-                        scope.launch {
-                            TelegramLink.verify(ctx, linkCode).onSuccess {
-                                linkMsg = "Linked! chatId: $it"
-                            }.onFailure {
-                                linkMsg = it.message ?: "Verification failed"
-                            }
-                            linkBusy = false
-                        }
-                    },
-                    enabled = linkCode.isNotBlank() && !linkBusy
-                ) { Text("Verify") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showLinkDialog = false }, enabled = !linkBusy) { Text("Close") }
-            }
-        )
-    }
-}
-
-@Composable
-private fun TelegramProfileCard(session: com.aaa.ai.data.TelegramAuthSession.Session) {
-    Card(
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Chat, contentDescription = null, tint = androidx.compose.ui.graphics.Color(0xFF229ED9))
-                Text("  Telegram Account", style = MaterialTheme.typography.titleMedium)
-                if (session.isPremium) {
-                    Text("  ⭐ Premium", style = MaterialTheme.typography.labelMedium,
-                        color = androidx.compose.ui.graphics.Color(0xFFFFB300),
-                        modifier = Modifier.padding(start = 6.dp))
-                }
-            }
-            Row(modifier = Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (session.photoUrl.isNotBlank()) {
-                    AsyncImage(
-                        model = session.photoUrl,
-                        contentDescription = "Telegram photo",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.size(56.dp).clip(CircleShape)
-                    )
-                } else {
-                    Icon(
-                        Icons.Filled.Chat, contentDescription = null,
-                        modifier = Modifier.size(56.dp).clip(CircleShape)
-                            .background(androidx.compose.ui.graphics.Color(0xFF229ED9).copy(alpha = 0.15f))
-                            .padding(14.dp),
-                        tint = androidx.compose.ui.graphics.Color(0xFF229ED9)
-                    )
-                }
-                Column(modifier = Modifier.padding(start = 12.dp)) {
-                    Text(session.displayName, style = MaterialTheme.typography.titleMedium)
-                    if (session.username.isNotBlank()) {
-                        Text("@${session.username}", style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.primary)
-                    }
-                }
-            }
-            ProfileInfoRow("Telegram ID", session.chatId ?: "—")
-            if (session.phone.isNotBlank()) ProfileInfoRow("Phone", session.phone)
-            else ProfileInfoRow("Phone", "Not shared — tap 📱 in the bot")
         }
     }
 }

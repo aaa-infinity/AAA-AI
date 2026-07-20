@@ -90,10 +90,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Resume an in-progress Telegram login when the user returns from the
-     * Telegram app (the poll may have been cancelled while we were backgrounded).
-     */
     override fun onResume() {
         try {
             super.onResume()

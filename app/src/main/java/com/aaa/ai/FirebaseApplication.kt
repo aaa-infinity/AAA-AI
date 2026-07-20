@@ -26,10 +26,13 @@ class FirebaseApplication : Application() {
     companion object {
         private const val TAG = "SuperAI"
         private const val CRASH_ENDPOINT = "https://aaa-ai-bot.aaateam.workers.dev/api/crashlog"
+        private var sInstance: FirebaseApplication? = null
+        fun instanceOrNull(): FirebaseApplication? = sInstance
     }
 
     override fun onCreate() {
         super.onCreate()
+        sInstance = this
         installCrashReporter()
         // Initialize Firebase explicitly so Auth / Firestore work at runtime
         // (the google-services plugin generates config but does not auto-init here).

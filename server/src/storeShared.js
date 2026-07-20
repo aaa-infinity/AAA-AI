@@ -292,61 +292,75 @@ function storeShell(title, body, user) {
   const nav = '<nav class="nav"><div class="wrap"><div class="brand">' +
     '<a href="/store" style="display:flex;align-items:center">' +
     '<img class="logo" src="/api/asset/public/aaa-store-logo.png" height="34" alt="AAA App Store"></a></div>' +
-    '<div class="nav-actions"><a class="nav-fb" href="https://www.facebook.com/share/1BzWH5P2bF/" target="_blank" rel="noopener">f</a>' +
+    '<div class="nav-actions"><button class="theme-btn" onclick="toggleTheme()" title="Toggle theme">🌓</button>' +
+    '<a class="nav-fb" href="https://www.facebook.com/share/1BzWH5P2bF/" target="_blank" rel="noopener">f</a>' +
     '<a class="dl ghost" href="/download">Get app</a>' +
     (user ? '<a class="dl" href="/store/upload">Upload app</a>' : '<a class="dl" href="/store/login">Sign in</a>') +
+    (user ? '<a class="dl ghost" href="#" onclick="logout();return false;">Sign out</a>' : '') +
     '</div></div></nav>';
   return '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<meta name="theme-color" content="#0b0b13">' +
     '<title>' + title + '</title><style>' +
-    '*{box-sizing:border-box;margin:0;padding:0}:root{color-scheme:dark}' +
-    'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#08080f;color:#f2f2f7;line-height:1.55}' +
+    '*{box-sizing:border-box;margin:0;padding:0}' +
+    ':root{color-scheme:dark;--bg:#08080f;--fg:#f2f2f7;--muted:#a6a6b8;--card:rgba(255,255,255,.04);--border:rgba(255,255,255,.08);--input:rgba(255,255,255,.06)}' +
+    'html[data-theme="light"]{--bg:#f6f7fb;--fg:#15151f;--muted:#5b5b70;--card:rgba(20,20,40,.04);--border:rgba(20,20,40,.1);--input:rgba(20,20,40,.05)}' +
+    'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--fg);line-height:1.55;transition:background .2s,color .2s}' +
     '.wrap{max-width:1100px;margin:0 auto;padding:0 20px}a{color:inherit;text-decoration:none}' +
-    '.nav{position:sticky;top:0;z-index:20;backdrop-filter:blur(12px);background:rgba(8,8,15,.7);border-bottom:1px solid rgba(255,255,255,.06)}' +
+    '.nav{position:sticky;top:0;z-index:20;backdrop-filter:blur(12px);background:rgba(8,8,15,.7);border-bottom:1px solid var(--border)}' +
+    'html[data-theme="light"] .nav{background:rgba(246,247,251,.8)}' +
     '.nav .wrap{display:flex;align-items:center;justify-content:space-between;padding:12px 20px}' +
     '.brand{display:flex;align-items:center;font-weight:800}' +
     '.brand img{height:34px;width:auto;border-radius:9px;filter:drop-shadow(0 2px 10px rgba(124,77,255,.4))}' +
     '.brand .logo{height:34px;width:auto}' +
-    '.nav a.dl{background:linear-gradient(135deg,#7c4dff,#ff4d9d);padding:9px 18px;border-radius:50px;font-weight:700;font-size:.9rem}' +
-    '.nav a.dl.ghost{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12)}' +
+    '.nav a.dl{background:linear-gradient(135deg,#7c4dff,#ff4d9d);padding:9px 18px;border-radius:50px;font-weight:700;font-size:.9rem;color:#fff}' +
+    '.nav a.dl.ghost{background:var(--input);border:1px solid var(--border);color:var(--fg)}' +
     '.nav-actions{display:flex;align-items:center;gap:10px}' +
     '.nav-fb{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:rgba(59,89,152,.18);border:1px solid rgba(59,89,152,.5);color:#9db4ff;font-weight:800}' +
+    '.theme-btn{cursor:pointer;background:var(--input);border:1px solid var(--border);color:var(--fg);width:34px;height:34px;border-radius:50%;font-size:1rem}' +
     '.hero{position:relative;overflow:hidden;text-align:center;padding:72px 20px 48px;background:radial-gradient(circle at 50% 0%,rgba(124,77,255,.4),transparent 60%)}' +
     '.hero::before{content:"";position:absolute;inset:-40% -20% auto -20%;height:420px;z-index:-1;background:radial-gradient(circle at 70% 30%,rgba(255,77,157,.32),transparent 55%);filter:blur(40px)}' +
     '.hero h1{font-size:clamp(2rem,5vw,3rem);font-weight:800}.grad{background:linear-gradient(135deg,#a98bff,#ff8fc0);-webkit-background-clip:text;background-clip:text;color:transparent}' +
-    '.sub{color:#b9b9c9;max-width:560px;margin:12px auto 24px}' +
+    '.sub{color:var(--muted);max-width:560px;margin:12px auto 24px}' +
     '.btn{display:inline-flex;align-items:center;gap:10px;padding:14px 28px;border-radius:50px;font-weight:700;background:linear-gradient(135deg,#7c4dff,#ff4d9d);color:#fff;transition:transform .15s,box-shadow .2s}' +
     '.btn:hover{transform:translateY(-2px);box-shadow:0 14px 34px rgba(255,77,157,.35)}' +
     '.bar{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin:18px 0}' +
-    '.chip{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);padding:7px 16px;border-radius:50px;font-size:.85rem;cursor:pointer;transition:.15s}' +
+    '.chip{background:var(--input);border:1px solid var(--border);padding:7px 16px;border-radius:50px;font-size:.85rem;cursor:pointer;transition:.15s;color:var(--fg)}' +
     '.chip:hover{border-color:rgba(124,77,255,.5)}' +
-    '.chip.active{background:linear-gradient(135deg,#7c4dff,#ff4d9d);border-color:transparent}' +
-    'input.search{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#fff;padding:12px 16px;border-radius:50px;min-width:280px;outline:none}' +
+    '.chip.active{background:linear-gradient(135deg,#7c4dff,#ff4d9d);border-color:transparent;color:#fff}' +
+    'input.search{background:var(--input);border:1px solid var(--border);color:var(--fg);padding:12px 16px;border-radius:50px;min-width:280px;outline:none}' +
     '.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin-top:28px}' +
-    '.card{display:block;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:18px;transition:transform .15s,border-color .2s}' +
+    '.card{display:block;background:var(--card);border:1px solid var(--border);border-radius:18px;padding:18px;transition:transform .15s,border-color .2s}' +
     '.card:hover{transform:translateY(-4px);border-color:rgba(124,77,255,.5)}' +
     '.card img.ic{width:64px;height:64px;border-radius:16px;object-fit:cover;background:#222;box-shadow:0 6px 18px rgba(124,77,255,.25)}' +
-    '.card h3{margin:12px 0 4px;font-size:1.05rem}.card p{color:#a6a6b8;font-size:.88rem;min-height:38px}' +
+    '.card h3{margin:12px 0 4px;font-size:1.05rem}.card p{color:var(--muted);font-size:.88rem;min-height:38px}' +
     '.cat{font-size:.72rem;color:#9db4ff;text-transform:uppercase;letter-spacing:1px;font-weight:700}' +
-    '.meta{color:#8a8aa0;font-size:.78rem;margin-top:8px}' +
-    'section{padding:40px 0}footer{text-align:center;padding:40px 20px;color:#6f6f82;font-size:.85rem;border-top:1px solid rgba(255,255,255,.06)}' +
-    '.empty{text-align:center;padding:60px 20px;color:#9d9daf}.empty .big{font-size:3rem;margin-bottom:10px}' +
+    '.meta{color:var(--muted);font-size:.78rem;margin-top:8px}' +
+    'section{padding:40px 0}footer{text-align:center;padding:40px 20px;color:var(--muted);font-size:.85rem;border-top:1px solid var(--border)}' +
+    '.empty{text-align:center;padding:60px 20px;color:var(--muted)}.empty .big{font-size:3rem;margin-bottom:10px}' +
     '.detail{max-width:720px;margin:0 auto}.detail img.ic{width:96px;height:96px;border-radius:22px;object-fit:cover}' +
-    '.form{max-width:620px;margin:0 auto;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:20px;padding:26px}' +
-    '.form label{display:block;margin:14px 0 6px;color:#cfcfdd;font-size:.9rem}' +
-    '.form input,.form textarea,.form select{width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#fff;padding:11px 14px;border-radius:12px;outline:none;font-family:inherit}' +
-    '.toggle{display:flex;gap:10px;margin:10px 0}.toggle button{flex:1;padding:10px;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#cfcfdd}' +
+    '.form{max-width:620px;margin:0 auto;background:var(--card);border:1px solid var(--border);border-radius:20px;padding:26px}' +
+    '.form label{display:block;margin:14px 0 6px;color:var(--muted);font-size:.9rem}' +
+    '.form input,.form textarea,.form select{width:100%;background:var(--input);border:1px solid var(--border);color:var(--fg);padding:11px 14px;border-radius:12px;outline:none;font-family:inherit}' +
+    '.toggle{display:flex;gap:10px;margin:10px 0}.toggle button{flex:1;padding:10px;border-radius:12px;border:1px solid var(--border);background:var(--input);color:var(--muted)}' +
     '.toggle button.active{background:linear-gradient(135deg,#7c4dff,#ff4d9d);color:#fff;border-color:transparent}' +
-    '/* featured flagship app on storefront */' +
-    '.featured{display:flex;align-items:center;gap:14px;background:rgba(255,255,255,.04);border:1px solid rgba(124,77,255,.3);' +
+    '.featured{display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid rgba(124,77,255,.3);' +
     'border-radius:18px;padding:14px 18px;text-decoration:none;max-width:560px;margin:22px auto 0}' +
     '.featured img{border-radius:14px;box-shadow:0 4px 14px rgba(124,77,255,.35)}' +
     '.featured .get{margin-left:auto;background:linear-gradient(135deg,#7c4dff,#ff4d9d);color:#fff;font-weight:800;' +
     'padding:9px 16px;border-radius:50px;font-size:.85rem;white-space:nowrap}' +
     '.featured:hover{border-color:rgba(124,77,255,.6);transform:translateY(-2px);transition:.15s}' +
-    '</style></head><body>' + nav + '<div class="wrap">' + body + '</div>' +
-    '<footer>&copy; ' + new Date().getFullYear() + ' AAA App Store &middot; A free Android app store.</footer></body></html>';
+    '.steps{counter-reset:s;display:grid;gap:12px;max-width:640px;margin:24px auto}' +
+    '.step{display:flex;gap:14px;align-items:flex-start;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;text-align:left}' +
+    '.step .n{flex:0 0 32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#7c4dff,#ff4d9d);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800}' +
+    '.step h4{margin-bottom:4px}.step p{color:var(--muted);font-size:.88rem}' +
+    '</style></head><body>' +
+    '<script>try{var t=localStorage.getItem("theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}</script>' +
+    nav + '<div class="wrap">' + body + '</div>' +
+    '<footer>&copy; ' + new Date().getFullYear() + ' AAA App Store &middot; A free Android app store.</footer>' +
+    '<script>function toggleTheme(){var h=document.documentElement;var c=h.getAttribute("data-theme")==="light"?"dark":"light";h.setAttribute("data-theme",c);try{localStorage.setItem("theme",c);}catch(e){}}' +
+    'function logout(){try{var t=localStorage.getItem("sess");if(t){fetch("/api/store/logout",{method:"POST",headers:{"x-session":t}}).catch(function(){});}localStorage.removeItem("sess");localStorage.removeItem("sessUser");}catch(e){}location.href="/store";}</script>' +
+    '</body></html>';
 }
 
 function appCard(a) {
@@ -466,6 +480,31 @@ export function uploadPage(user) {
 
 export function escapeHtml(s) {
   return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// Landing page that explains Super AI and how to get a free AI key, then installs.
+export function downloadPage(user) {
+  const steps = [
+    { h: "Install Super AI", p: "Download the free Android APK from our store — no Play Store account needed." },
+    { h: "Get a free AI key (optional)", p: "For private, unlimited Telegram chat, grab a free Gemini (AIza…) or Groq (gsk_…) key. Or just use the app where AI is built in." },
+    { h: "Chat, create & download", p: "Use the all-in-one studio: AI chat, image & video generation, and downloaders." },
+  ];
+  const body = '<div class="detail" style="padding-top:48px;text-align:center">' +
+    '<img class="ic" src="/api/asset/public/aaa-store-logo.png" alt="Super AI" onerror="this.style.display=\'none\'">' +
+    '<h1 style="margin:16px 0 4px">Super AI — free all-in-one AI</h1>' +
+    '<p class="sub" style="margin:0 auto 8px">Chat, generate images & videos, and download anything. Get a free AI key and talk to our Telegram bot too.</p>' +
+    '<div style="margin:22px 0"><a class="btn" href="/store/app/app_superai">⬇ Download for Android</a></div>' +
+    '<div class="steps">' +
+    steps.map(function (s, i) {
+      return '<div class="step"><div class="n">' + (i + 1) + '</div><div><h4>' + escapeHtml(s.h) + '</h4><p>' + escapeHtml(s.p) + '</p></div></div>';
+    }).join('') +
+    '</div>' +
+    '<p style="color:var(--muted);margin:18px 0 4px">Free AI keys: ' +
+    '<a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Gemini</a> · ' +
+    '<a href="https://console.groq.com/keys" target="_blank" rel="noopener">Groq</a> · ' +
+    '<a href="https://openrouter.ai/keys" target="_blank" rel="noopener">OpenRouter</a></p>' +
+    '</div>';
+  return storeShell("Download Super AI — AAA App Store", body, user);
 }
 
 export function loginPage(user, opts) {

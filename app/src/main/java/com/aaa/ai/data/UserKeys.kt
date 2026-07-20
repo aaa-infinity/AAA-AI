@@ -24,6 +24,7 @@ object UserKeys {
     private val K_GEMINI = stringPreferencesKey("key_gemini")
     private val K_GROQ = stringPreferencesKey("key_groq")
     private val K_HF = stringPreferencesKey("key_hf")
+    private val K_OPENROUTER = stringPreferencesKey("key_openrouter")
 
     enum class Provider(
         val id: String,
@@ -33,17 +34,22 @@ object UserKeys {
         val youtubeUrl: String
     ) {
         GEMINI(
-            "gemini", "Google Gemini", "Paste your Gemini API key",
+            "gemini", "Google Gemini", "Paste your Gemini API key (AIza…)",
             "https://aistudio.google.com/app/apikey",
             "https://www.youtube.com/results?search_query=how+to+get+google+gemini+api+key"
         ),
         GROQ(
-            "groq", "Groq", "Paste your Groq API key",
+            "groq", "Groq", "Paste your Groq API key (gsk_…)",
             "https://console.groq.com/keys",
             "https://www.youtube.com/results?search_query=how+to+get+groq+api+key"
         ),
+        OPENROUTER(
+            "openrouter", "OpenRouter", "Paste your OpenRouter key (sk-or-…)",
+            "https://openrouter.ai/keys",
+            "https://www.youtube.com/results?search_query=how+to+get+openrouter+api+key"
+        ),
         HF(
-            "hf", "Hugging Face", "Paste your HF token",
+            "hf", "Hugging Face", "Paste your HF token (hf_…)",
             "https://huggingface.co/settings/tokens",
             "https://www.youtube.com/results?search_query=how+to+create+hugging+face+access+token"
         );
@@ -51,12 +57,14 @@ object UserKeys {
         fun keyFor(prefs: Preferences): String? = when (this) {
             GEMINI -> prefs[K_GEMINI]
             GROQ -> prefs[K_GROQ]
+            OPENROUTER -> prefs[K_OPENROUTER]
             HF -> prefs[K_HF]
         }
 
         fun pref() = when (this) {
             GEMINI -> K_GEMINI
             GROQ -> K_GROQ
+            OPENROUTER -> K_OPENROUTER
             HF -> K_HF
         }
     }

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Download
@@ -118,7 +119,7 @@ fun EndpointCard(
 }
 
 private fun styleFor(category: ApiCategory): Pair<ImageVector, Color> = when (category) {
-    ApiCategory.AI_CHAT -> Icons.Filled.Chat to BrandPurple
+    ApiCategory.AI_CHAT -> Icons.AutoMirrored.Filled.Chat to BrandPurple
     ApiCategory.DOWNLOADERS -> Icons.Filled.Download to BrandTeal
     ApiCategory.UTILITIES -> Icons.Filled.Search to BrandAmber
     ApiCategory.ANIME -> Icons.Filled.Search to BrandAmber

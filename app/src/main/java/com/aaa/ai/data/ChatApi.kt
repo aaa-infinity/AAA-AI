@@ -21,6 +21,7 @@ object ChatApi {
     enum class Model(val id: String, val label: String) {
         GEMINI("gemini", "Gemini"),
         GROQ("groq", "Groq (Llama)"),
+        OPENROUTER("openrouter", "OpenRouter"),
         HF("hf", "HuggingFace");
     }
 
@@ -68,6 +69,7 @@ object ChatApi {
     private fun Model.toProvider(): UserKeys.Provider = when (this) {
         Model.GEMINI -> UserKeys.Provider.GEMINI
         Model.GROQ -> UserKeys.Provider.GROQ
+        Model.OPENROUTER -> UserKeys.Provider.OPENROUTER
         Model.HF -> UserKeys.Provider.HF
     }
 }

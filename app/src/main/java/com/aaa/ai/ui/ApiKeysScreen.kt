@@ -11,6 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Key
@@ -116,7 +117,7 @@ private fun ProviderKeyCard(
                 Icon(Icons.Filled.Key, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Text(provider.label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 8.dp).weight(1f))
                 if (hasKey) Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                IconButton(onClick = onOpenGuide) { Icon(Icons.Filled.OpenInNew, contentDescription = "Guide") }
+                IconButton(onClick = onOpenGuide) { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Guide") }
             }
             OutlinedTextField(
                 value = key, onValueChange = { key = it },

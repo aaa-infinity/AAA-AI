@@ -16,8 +16,8 @@ android {
         applicationId = "com.aaa.ai"
         minSdk = 24
         targetSdk = 35
-        versionCode = 18
-        versionName = "2.2.10"
+        versionCode = 22
+        versionName = "2.2.14"
 
         // Load APP_SHARED_SECRET from local.properties (gitignored) so the secret
         // is never baked into source control or the public APK's source.
@@ -29,17 +29,6 @@ android {
             ?: providers.gradleProperty("APP_SHARED_SECRET").orNull
             ?: ""
         buildConfigField("String", "APP_SHARED_SECRET", "\"$sharedSecret\"")
-
-        // Telegram user-account API credentials (from your my.telegram.org app).
-        // These are PUBLIC client credentials (Telegram ships them in the app),
-        // so they safely default to the project's values. Overridable via
-        // local.properties / gradle properties / CI secret if you ever rotate them.
-        val tgApiId = localProps.getProperty("TG_API_ID")
-            ?: providers.gradleProperty("TG_API_ID").orNull ?: "37321306"
-        val tgApiHash = localProps.getProperty("TG_API_HASH")
-            ?: providers.gradleProperty("TG_API_HASH").orNull ?: "5cd9e5bbfb572a4429a0c54774153b47"
-        buildConfigField("int", "TG_API_ID", if (tgApiId.isBlank()) "0" else tgApiId)
-        buildConfigField("String", "TG_API_HASH", "\"$tgApiHash\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

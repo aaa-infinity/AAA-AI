@@ -6,7 +6,7 @@ import {
   dbUpdateAppStatus, dbSupersede, dbIncDownloads, dbListApps,
   pushPending, removePending, getPendingList, createSession, getSessionUid,
   requireUser, aiGenerateListing, aiModerate, storePage, storeDetailPage,
-  uploadPage, loginPage, escapeHtml, json, dbAddRating, dbGetRatings, dbVersionHistory,
+  uploadPage, loginPage, downloadPage, escapeHtml, json, dbAddRating, dbGetRatings, dbVersionHistory,
 } from "./storeShared.js";
 import { askAi, adminAi, verifyTelegramWidget, adminChannelNotify } from "./index.js";
 
@@ -66,6 +66,12 @@ async function handleStore(request, env) {
       authUrl: origin + "/api/store/widget-verify",
     }), { headers: { "content-type": "text/html; charset=utf-8" } });
   }
+  if (request.method === "GET" && (p === "/download" || p === "/download/")) {
+    const token = request.headers.get("x-session") || "";
+    const uid = await getSessionUid(env, token);
+    const user = uid ? await dbUpsertUser(env, { uid }) : null;
+    return new Response(downloadPage(user), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" } });
+  }
 
   // ---- Store API ----
   if (request.method === "POST" && p === "/api/store/login") {
@@ -98,13 +104,19 @@ async function handleStore(request, env) {
     const user = { uid, username: body.username, first_name: body.first_name, last_name: body.last_name, photo_url: body.photo_url };
     const html = '<!doctype html><html><head><meta charset="utf-8"></head><body><script>' +
       'var t=' + JSON.stringify(token) + ';var u=' + JSON.stringify(user) + ';' +
+      'try{localStorage.setItem("sess",t);localStorage.setItem("sessUser",JSON.stringify(u));}catch(e){}' +
       'try{if(window.opener)window.opener.postMessage({type:"tg-store-login",token:t,user:u},"*");}catch(e){}' +
       'try{parent.postMessage({type:"tg-store-login",token:t,user:u},"*");}catch(e){}' +
       'try{if(window.TgLoginBridge)window.TgLoginBridge.onResult(JSON.stringify({token:t,user:u}));}catch(e){}' +
-      'document.write("✅ Signed in as "+(u.username||u.uid)+". You can close this tab.");' +
-      'setTimeout(function(){try{window.close();}catch(e){}},800);' +
+      'document.write("✅ Signed in as "+(u.username||u.uid)+". Redirecting…");' +
+      'setTimeout(function(){try{if(window.opener||window.parent!==window){window.close();}else{location.href="/store";}}catch(e){location.href="/store";}},700);' +
       '</script></body></html>';
     return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+  }
+  if (request.method === "POST" && p === "/api/store/logout") {
+    const token = request.headers.get("x-session") || "";
+    if (token && env.AAA_KV) await env.AAA_KV.delete("sess:" + token).catch(function () {});
+    return json({ ok: true });
   }
   if (request.method === "GET" && p === "/api/store/me") {
     const { uid, error } = await requireUser(request, env);

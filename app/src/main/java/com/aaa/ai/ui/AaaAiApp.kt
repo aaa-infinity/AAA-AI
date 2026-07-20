@@ -38,6 +38,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Chat
@@ -89,7 +90,7 @@ import com.aaa.ai.data.ApiCategory
 import com.aaa.ai.data.ApiEndpoint
 import com.aaa.ai.data.EndpointCatalog
 import com.aaa.ai.data.ResultKind
-import com.aaa.ai.data.TelegramAuthSession
+import com.aaa.ai.data.TelegramAuth
 import com.aaa.ai.data.UserProfile
 import com.aaa.ai.data.model.ParsedResult
 import com.aaa.ai.ui.theme.BrandAmber
@@ -113,19 +114,19 @@ fun AaaAiApp(
     onEarnRewarded: () -> Unit
 ) {
     val user by authViewModel.user.collectAsStateWithLifecycle()
-    val tgSession by TelegramAuthSession.sessionFlow(LocalContext.current)
-        .collectAsStateWithLifecycle(initialValue = TelegramAuthSession.Session())
+    val tgSession by TelegramAuth.sessionFlow.collectAsStateWithLifecycle()
     val authenticated = user != null || tgSession.verified
     var confirmed18 by remember { mutableStateOf(false) }
+    val startCtx = LocalContext.current
+
+    LaunchedEffect(Unit) { TelegramAuth.refresh(startCtx) }
 
     LaunchedEffect(user?.uid, tgSession.verified) {
         val uid = user?.uid ?: "tg_${tgSession.chatId}"
         viewModel.setUserId(uid)
-        viewModel.checkPremium(uid)
-        viewModel.refreshBalance()
-        // Link the Telegram user id to the app wallet so bot points are shared.
-        if (!user?.uid.isNullOrBlank() && !tgSession.chatId.isNullOrBlank()) {
-            com.aaa.ai.data.TelegramLinker.link(viewModel.appContext, tgSession.chatId!!, user!!.uid)
+        if (!uid.isNullOrBlank()) {
+            viewModel.checkPremium(uid)
+            viewModel.refreshBalance()
         }
     }
 
@@ -165,7 +166,7 @@ fun AaaAiApp(
 
     val tabs = listOf(
         TabDef(Screen.HOME, "Home", Icons.Filled.Home),
-        TabDef(Screen.CHAT, "Chat", Icons.Filled.Chat),
+        TabDef(Screen.CHAT, "Chat", Icons.AutoMirrored.Filled.Chat),
         TabDef(Screen.DOWNLOADERS, "Download", Icons.Filled.Download),
         TabDef(Screen.TOOLS, "Studio", Icons.Filled.Build),
         TabDef(Screen.GALLERIES, "Gallery", Icons.Filled.Image),
@@ -301,7 +302,7 @@ fun AaaAiApp(
                         }
                     }
                     IconButton(onClick = { onToggleTheme(!isDark) }) {
-                        Icon(Icons.Filled.MenuBook, contentDescription = "Theme")
+                        Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "Theme")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -446,7 +447,7 @@ private fun HomeScreen(
         }.take(6)
     }
     val quick = listOf(
-        Triple("AI Chat", Icons.Filled.Chat, BrandPurple),
+        Triple("AI Chat", Icons.AutoMirrored.Filled.Chat, BrandPurple),
         Triple("Downloaders", Icons.Filled.Download, BrandTeal),
         Triple("Studio", Icons.Filled.Build, BrandPink),
         Triple("Gallery", Icons.Filled.Image, BrandAmber)

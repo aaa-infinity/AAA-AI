@@ -1,6 +1,5 @@
 package com.aaa.ai
 
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import androidx.lifecycle.ViewModel
@@ -8,9 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.aaa.ai.data.AuthRepository
 import com.aaa.ai.data.FirebaseSync
 import com.aaa.ai.data.FirestoreBackend
-import com.aaa.ai.data.TelegramAuthSession
-import com.aaa.ai.data.TelegramDeepLinkAuth
-import com.aaa.ai.data.TelegramVerifyPoller
+import com.aaa.ai.data.TelegramAuth
 import com.aaa.ai.data.UserProfile
 import com.google.firebase.auth.FirebaseUser
 import kotlinx.coroutines.Dispatchers
@@ -26,9 +23,8 @@ import kotlinx.coroutines.withContext
 /**
  * Authentication + profile view model.
  *
- * Exposes a reactive [user] stream (Firebase auth state), sign-in/up/out for
- * email + Google, and a Telegram deep-link login flow that generates a secure
- * token, opens the Telegram client, and polls the backend until verified.
+ * Exposes a reactive [user] stream (Firebase auth state) and sign-in/up/out for
+ * email + Google. Telegram login was removed; Super AI uses email and Google.
  */
 class AuthViewModel(
     private val auth: AuthRepository,
@@ -51,113 +47,86 @@ class AuthViewModel(
 
     fun signInWithGoogle(data: Intent?) {
         viewModelScope.launch {
+            _events.send(AuthEvent.Busy(true))
             auth.signInWithGoogle(data)
                 .onSuccess { onSignedIn(it) }
                 .onFailure { _events.send(AuthEvent.Error(it.message ?: "Google sign-in failed")) }
+            _events.send(AuthEvent.Busy(false))
         }
     }
 
     fun signIn(email: String, password: String) {
         viewModelScope.launch {
+            _events.send(AuthEvent.Busy(true))
             auth.signInWithEmail(email, password)
                 .onSuccess { onSignedIn(it) }
                 .onFailure { _events.send(AuthEvent.Error(it.message ?: "Sign-in failed")) }
+            _events.send(AuthEvent.Busy(false))
         }
     }
 
     fun signUp(email: String, password: String) {
         viewModelScope.launch {
+            _events.send(AuthEvent.Busy(true))
             auth.signUpWithEmail(email, password)
                 .onSuccess { onSignedIn(it) }
                 .onFailure { _events.send(AuthEvent.Error(it.message ?: "Sign-up failed")) }
+            _events.send(AuthEvent.Busy(false))
         }
     }
 
     fun signOut() {
         auth.signOut()
+        TelegramAuth.clear(appContext)
+        _tgState.value = TelegramLoginState.Idle
         viewModelScope.launch {
-            TelegramAuthSession.clear(appContext)
-            _tgState.value = TelegramLoginState.Idle
             _events.send(AuthEvent.SignedOut)
         }
     }
 
     /**
-     * Telegram deep-link login.
-     *
-     * 1. Generate an 8-char token and persist it as pending.
-     * 2. Open the Telegram client to the bot with `start=verify_<token>`.
-     * 3. Start a 3s polling coroutine against the backend; on success, persist
-     *    the verified session and emit [TelegramLoginState.Verified].
+     * Telegram deep-link login: generate a code, persist it, open the Telegram
+     * bot, then poll the worker until the code is verified.
      */
     fun startTelegramLogin() {
-        val token = TelegramDeepLinkAuth.generateToken()
-        _tgState.value = TelegramLoginState.Opening(token)
+        val code = TelegramAuth.generateCode()
+        _tgState.value = TelegramLoginState.Opening(code)
         viewModelScope.launch {
-            TelegramAuthSession.savePending(appContext, token)
+            TelegramAuth.savePending(appContext, code)
             withContext(Dispatchers.Main) {
-                TelegramDeepLinkAuth.launch(appContext, token)
+                appContext.startActivity(
+                    TelegramAuth.botDeepLink(code).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
             }
-            runPoll(token)
+            runPoll(code)
         }
     }
 
-    /**
-     * Resume an in-progress Telegram login after the user returns from the
-     * Telegram app. If a pending (unverified) token is stored locally, restart
-     * the polling loop so the verification result is picked up. This fixes the
-     * common case where the poll was cancelled when the app went to background.
-     */
     fun resumeTelegramLogin() {
         if (_tgState.value is TelegramLoginState.Polling ||
             _tgState.value is TelegramLoginState.Verified) return
         viewModelScope.launch {
-            val token = TelegramAuthSession.loadPendingToken(appContext)
-            if (!token.isNullOrBlank()) {
-                _tgState.value = TelegramLoginState.Polling(token)
-                runPoll(token)
+            val code = TelegramAuth.loadPending(appContext)
+            if (code.isNotBlank()) {
+                _tgState.value = TelegramLoginState.Polling(code)
+                runPoll(code)
             }
         }
     }
 
-    /** Shared polling routine used by both start and resume paths. */
-    private suspend fun runPoll(token: String) {
-        _tgState.value = TelegramLoginState.Polling(token)
-        val result = TelegramVerifyPoller.poll(appContext, token)
-        if (result != null) {
-            TelegramAuthSession.saveVerified(appContext, token, result.chatId, result.profile)
-            _tgState.value = TelegramLoginState.Verified(result.chatId)
-            _events.send(AuthEvent.TelegramVerified(result.chatId))
+    private suspend fun runPoll(code: String) {
+        _tgState.value = TelegramLoginState.Polling(code)
+        val server = appContext.getString(com.aaa.ai.R.string.bot_server_url)
+        val profile = TelegramAuth.poll(appContext, code, server) { _tgState.value = TelegramLoginState.Polling(code) }
+        if (profile != null) {
+            val chatId = profile.id.ifBlank {
+                com.aaa.ai.data.TelegramAuth.load(appContext).chatId
+            }
+            TelegramAuth.save(appContext, chatId, profile)
+            _tgState.value = TelegramLoginState.Verified(chatId)
+            _events.send(AuthEvent.TelegramVerified(chatId))
         } else {
-            // Don't hard-fail: leave it resumable so returning from Telegram retries.
-            _tgState.value = TelegramLoginState.Idle
-        }
-    }
-
-    fun resetTelegramLogin() {
-        _tgState.value = TelegramLoginState.Idle
-    }
-
-    /**
-     * Finish a native (WebView) Telegram login using the verified user returned
-     * by the worker's Login Widget. Persists the session and emits the verified
-     * event so the UI can navigate onward.
-     */
-    fun completeTelegramLogin(user: com.aaa.ai.ui.TelegramUser) {
-        val token = TelegramDeepLinkAuth.generateToken()
-        val profile = com.aaa.ai.data.TelegramProfile(
-            id = user.id,
-            username = user.username,
-            firstName = user.firstName,
-            lastName = user.lastName,
-            photoUrl = user.photoUrl,
-            phone = "",
-            isPremium = false
-        )
-        viewModelScope.launch {
-            TelegramAuthSession.saveVerified(appContext, token, user.id, profile)
-            _tgState.value = TelegramLoginState.Verified(user.id)
-            _events.send(AuthEvent.TelegramVerified(user.id))
+            _tgState.value = TelegramLoginState.Failed("Verification timed out. Tap the button again.")
         }
     }
 
@@ -165,7 +134,6 @@ class AuthViewModel(
         runCatching { backend.ensureProfile(user) }
         // Mirror the Firebase user into the Cloudflare -> Supabase + D1 backends.
         runCatching { FirebaseSync.sync(appContext, user) }
-        // Seed local lifetime display name from auth if empty
         viewModelScope.launch {
             UserProfile.profileFlow(appContext).collect { p ->
                 if (p.name.isBlank() && !user.displayName.isNullOrBlank()) {
@@ -180,14 +148,15 @@ class AuthViewModel(
         data class SignedIn(val user: FirebaseUser) : AuthEvent
         data object SignedOut : AuthEvent
         data class Error(val message: String) : AuthEvent
+        data class Busy(val value: Boolean) : AuthEvent
         data class TelegramVerified(val chatId: String) : AuthEvent
     }
 
     /** State machine for the Telegram deep-link verification handshake. */
     sealed interface TelegramLoginState {
         data object Idle : TelegramLoginState
-        data class Opening(val token: String) : TelegramLoginState
-        data class Polling(val token: String) : TelegramLoginState
+        data class Opening(val code: String) : TelegramLoginState
+        data class Polling(val code: String) : TelegramLoginState
         data class Verified(val chatId: String) : TelegramLoginState
         data class Failed(val message: String) : TelegramLoginState
     }

@@ -1208,6 +1208,27 @@ async function callHf(q, userKey) {
   } catch (e) { return null; }
 }
 
+// OpenAI-compatible chat endpoint (works for OpenRouter sk-or-… and generic sk- OpenAI keys).
+async function callOpenAiCompatible(q, userKey, baseUrl, model) {
+  if (!userKey) return null;
+  try {
+    const res = await fetch(baseUrl + "/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json", Authorization: "Bearer " + userKey },
+      body: JSON.stringify({ model: model, messages: [{ role: "user", content: q }] }),
+    });
+    const obj = await res.json().catch(function () { return {}; });
+    if (isQuotaError(res, obj)) return null;
+    return obj?.choices?.[0]?.message?.content || null;
+  } catch (e) { return null; }
+}
+async function callOpenRouter(q, userKey) {
+  return callOpenAiCompatible(q, userKey, "https://openrouter.ai/api/v1", "openai/gpt-3.5-turbo");
+}
+async function callOpenAi(q, userKey) {
+  return callOpenAiCompatible(q, userKey, "https://api.openai.com/v1", "gpt-3.5-turbo");
+}
+
 /**
  * Smart AI router with automatic fallback. Skips providers whose key is currently
  * marked exhausted (quota/credits used up) and falls through to the next healthy
@@ -1218,9 +1239,21 @@ export async function askAi(q, provider, userKey) {
   const groqOk = !(await isExhausted(ENV, "groq"));
   const hfOk = !(await isExhausted(ENV, "hf"));
   let out = null;
+  // For per-user keys we route by the user's chosen provider first.
+  if (userKey) {
+    if (provider === "groq") out = await callGroq(q, userKey);
+    else if (provider === "openrouter") out = await callOpenRouter(q, userKey);
+    else if (provider === "openai") out = await callOpenAi(q, userKey);
+    else if (provider === "hf") out = await callHf(q, userKey);
+    else out = await callGemini(q, userKey);
+    if (out) return out;
+  }
   if (provider === "groq") {
     if (groqOk) out = await callGroq(q, userKey);
     if (!out && gemOk) out = await callGemini(q, userKey);
+    if (!out) out = await callFreeAi("gemini", q);
+  } else if (provider === "openrouter") {
+    if (gemOk) out = await callGemini(q, userKey);
     if (!out) out = await callFreeAi("gemini", q);
   } else if (provider === "hf") {
     if (hfOk) out = await callHf(q, userKey);
@@ -1232,6 +1265,53 @@ export async function askAi(q, provider, userKey) {
     if (!out) out = await callFreeAi("gemini", q);
   }
   return out || "⚠️ All AI providers are busy right now. Please try again in a moment.";
+}
+
+// ---- Per-user AI keys (Telegram companion bot) ----------------------------
+// Users who want AI inside Telegram paste their OWN free API key (e.g. Gemini).
+// It is saved per-user so the bot can answer using their key. The admin can
+// list who connected a key via /userkeys.
+// Per-user keys are stored as a JSON map { provider: key } in a single row so a
+// user can connect several free providers at once (Gemini + Groq + OpenRouter…).
+async function getUserAiKeys(env, uid) {
+  if (env.AAA_DB) {
+    try {
+      const r = await env.AAA_DB.prepare("SELECT api_key FROM user_ai_keys WHERE uid = ?").bind(uid).first();
+      if (r && r.api_key) {
+        try { return JSON.parse(r.api_key) || {}; } catch (e) { return {}; }
+      }
+    } catch (e) {}
+  }
+  return {};
+}
+async function getUserAiKey(env, uid) {
+  const m = await getUserAiKeys(env, uid);
+  return m && m.gemini ? { provider: "gemini", key: m.gemini }
+    : (m && m.groq ? { provider: "groq", key: m.groq }
+      : (m && m.openrouter ? { provider: "openrouter", key: m.openrouter } : null));
+}
+async function saveUserAiKey(env, uid, provider, key) {
+  if (!env.AAA_DB) return false;
+  try {
+    await env.AAA_DB.prepare(
+      "CREATE TABLE IF NOT EXISTS user_ai_keys (uid text PRIMARY KEY, provider text, api_key text, created_at bigint)"
+    ).run();
+    const cur = await getUserAiKeys(env, uid);
+    cur[provider] = key;
+    const jsonMap = JSON.stringify(cur);
+    await env.AAA_DB.prepare(
+      "INSERT INTO user_ai_keys (uid, provider, api_key, created_at) VALUES (?, ?, ?, ?) " +
+      "ON CONFLICT(uid) DO UPDATE SET api_key = excluded.api_key, provider = ?, created_at = excluded.created_at"
+    ).bind(uid, provider, jsonMap, Date.now(), provider).run();
+    return true;
+  } catch (e) { return false; }
+}
+async function listUserAiKeys(env) {
+  if (!env.AAA_DB) return [];
+  try {
+    const rows = await env.AAA_DB.prepare("SELECT uid, api_key, created_at FROM user_ai_keys ORDER BY created_at DESC LIMIT 50").all();
+    return (rows && rows.results) || [];
+  } catch (e) { return []; }
 }
 
 // ---- Background Admin AI ----------------------------------------------------
@@ -1788,22 +1868,23 @@ async function generateVideoShotstack(prompt, env, useProd, vertical, type, prom
   // Build a short spoken SCRIPT + scene captions based on the video TYPE, so each
   // kind of Short (app ad / promo code / tip) is genuinely different content.
   type = (type || "general").toLowerCase();
+  const freeKeyLine = "Want AI in Telegram too? Grab a free Gemini or Groq API key and chat with our bot — no cost, totally private.";
   let script, sceneCaptions, imgThemes;
   if (type === "ad" || type === "app") {
-    script = "Meet Super AI, your all-in-one AI assistant. Chat, create images, and download anything in seconds. Get the app free today and unlock your creativity.";
+    script = "Meet Super AI, your all-in-one AI assistant. Chat, create images, and download anything in seconds. Get the app free today and unlock your creativity. " + freeKeyLine;
     sceneCaptions = ["Your AI assistant", "Chat · Images · Downloads", "All in one app", "Free to start"];
     imgThemes = [safe + " smartphone app UI", "person using AI chat assistant", "AI generated art on phone", "happy user creating content"];
   } else if (type === "promo" || type === "promocode") {
     const codeTxt = promoCode ? (" code " + promoCode) : " code";
-    script = "Limited drop! Use our promo" + codeTxt + " to unlock Premium free. First users only. Open Super AI, redeem your code, and enjoy Pro features today.";
+    script = "Limited drop! Use our promo" + codeTxt + " to unlock Premium free. First users only. Open Super AI, redeem your code, and enjoy Pro features today. " + freeKeyLine;
     sceneCaptions = ["Limited Promo", "Unlock Premium FREE", "First users only", "Redeem in app"];
     imgThemes = [safe + " gift box glowing", "premium badge neon", "countdown timer style", "celebration confetti ai"];
   } else if (type === "tip") {
-    script = "AI tip of the day: " + (safe || "let AI handle the busywork") + ". Try it now in Super AI and save hours every week.";
+    script = "AI tip of the day: " + (safe || "let AI handle the busywork") + ". Try it now in Super AI and save hours every week. " + freeKeyLine;
     sceneCaptions = ["Tip of the day", safe.slice(0, 24) || "Work smarter", "Try it in Super AI", "Save hours weekly"];
     imgThemes = [safe + " workspace", "person relaxed productivity", "ai robot helping", "futuristic desk setup"];
   } else {
-    script = (safe || "Super AI creates amazing things") + ". Powered by Ari AI. Get the app and start creating for free.";
+    script = (safe || "Super AI creates amazing things") + ". Powered by Ari AI. Get the app and start creating for free. " + freeKeyLine;
     sceneCaptions = [titleText, safe.slice(0, 24) || "Create with AI", "Powered by Super AI", "Get the app free"];
     imgThemes = [safe + " futuristic", safe + " app UI neon", safe + " abstract energy", safe + " cinematic scene"];
   }
@@ -1877,6 +1958,10 @@ async function generateVideoShotstack(prompt, env, useProd, vertical, type, prom
     clips.push({ asset: { type: "title", text: "CODE: " + promoCode, style: "subtitle", size: "small" }, start: t, length: 2.5, position: "center" });
     t += 2.5;
   }
+  // Free AI key call-to-action: tell viewers how to get a free Gemini/Groq key
+  // and chat with our bot — no link on screen, just point them to the bot.
+  clips.push({ asset: { type: "title", text: "🔑 Want AI in Telegram? Get a FREE key: aistudio.google.com/apikey or console.groq.com/keys — paste it to our bot", style: "subtitle", size: "small" }, start: t, length: 4, position: "center" });
+  t += 4;
 
   // Audio: AI voiceover (the script) on top + royalty-free background music, both
   // hosted in R2 and referenced by URL (Shotstack sandbox can't fetch external audio).
@@ -1997,6 +2082,33 @@ async function handleFreeAi(update) {
       [{ text: "📲 Download Super AI (free)", url: STORE }, { text: "🛍 App Store", url: STORE }],
     ] },
   };
+  // Detect a pasted free AI key. Supports several free providers:
+  //   Gemini     AIza…            (Google AI Studio — free tier)
+  //   Groq       gsk_…            (console.groq.com — free Llama/Mixtral)
+  //   OpenRouter sk-or-…          (openrouter.ai — free models)
+  //   HuggingFace hf_…            (huggingface.co/settings/tokens)
+  //   Generic    sk-… (OpenAI-compatible)
+  const keyDetect = text.match(/\b(AIza[\w-]{20,}|gsk_[\w-]{20,}|sk-or-[\w-]{20,}|hf_[\w-]{20,}|sk-[\w-]{20,})\b/);
+  const PROVIDER_BY_PREFIX = { "AIza": "gemini", "gsk_": "groq", "sk-or-": "openrouter", "hf_": "hf", "sk-": "openai" };
+  if (keyDetect && cmd.indexOf("/") !== 0) {
+    const rawKey = keyDetect[0];
+    let provider = "gemini";
+    for (const p in PROVIDER_BY_PREFIX) { if (rawKey.startsWith(p)) { provider = PROVIDER_BY_PREFIX[p]; break; } }
+    const saved = await saveUserAiKey(ENV, userId, provider, rawKey);
+    const label = provider === "groq" ? "Groq" : provider === "openrouter" ? "OpenRouter" : provider === "hf" ? "HuggingFace" : provider === "openai" ? "OpenAI-compatible" : "Gemini";
+    await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId,
+      (saved ? "✅ <b>Your " + label + " key is connected!</b>\n" : "⚠️ Couldn't save the key right now — try again later.\n") +
+      (saved ? "You can now chat with me right here and I'll answer using YOUR key. 🤖 You can add more keys (Gemini + Groq + OpenRouter) and they all work.\n\nType /mykey to see your connected keys." : ""));
+    return;
+  }
+  if (cmd === "/mykey" || cmd === "/mykeys") {
+    const m = await getUserAiKeys(ENV, userId);
+    const list = Object.keys(m);
+    await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId, list.length
+      ? "🔑 <b>Your connected keys:</b>\n" + list.map(function (p) { return "• " + p + " (" + (m[p] || "").slice(0, 6) + "…" + (m[p] || "").slice(-4) + ")"; }).join("\n") + "\n\nYour keys are private and can't be removed here — contact support if you need them reset."
+      : "🔒 You have no AI key connected yet. Paste a free Gemini/Groq/OpenRouter key to start chatting here.");
+    return;
+  }
   if (cmd === "/start") {
     const arg = text.slice(text.indexOf("/start") + "/start".length).trim();
     if (arg.startsWith("ref_")) {
@@ -2008,43 +2120,40 @@ async function handleFreeAi(update) {
       }
     }
     await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId,
-      "👋 <b>Hi! I'm the Super AI companion bot.</b>\n\n" +
-      "🤖 <b>AI chat, images, downloaders & the creative studio live inside the Super AI app</b> — " +
-      "but you can ask me anything right here and I'll help.\n\n" +
-      "📲 <b>Get the app (100% free):</b> " + STORE,
+      "👋 <b>Welcome to Super AI!</b>\n\n" +
+      "I'm your companion bot. The full AI studio — chat, images, video & downloaders — lives inside the <b>Super AI app</b>.\n\n" +
+      "💬 <b>Want to chat with AI right here? Connect your OWN free key</b> (private to your account, no extra cost):\n" +
+      "• 🟣 <b>Gemini</b> (Google AI Studio): get a free <code>AIza…</code> key → aistudio.google.com/apikey (or open AI Studio and click \"Get API key\")\n" +
+      "• 🟢 <b>Groq</b>: free <code>gsk_…</code> key → console.groq.com/keys\n" +
+      "• 🔵 <b>OpenRouter</b>: free <code>sk-or-…</code> key → openrouter.ai/keys\n" +
+      "Just paste the key here and start chatting. Type /help for more.\n\n" +
+      "📱 Get the app from our store below 👇",
       menu);
     return;
   }
   if (cmd === "/help" || cmd === "/about" || cmd === "/menu") {
     await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId,
       "🤖 <b>AAA Free AI — companion bot</b>\n\n" +
-      "• Just chat with me — I'll answer your questions.\n" +
-      "• Send <code>/img &lt;idea&gt;</code> and I'll generate an image preview.\n" +
-      "• All AI tools (chat, image, video, downloaders, studio) live in the Super AI app.\n\n" +
+      "To chat with AI here, connect your OWN free API key (so you control usage):\n" +
+      "• Gemini → <code>AIza…</code> (aistudio.google.com/apikey)\n" +
+      "• Groq → <code>gsk_…</code> (console.groq.com/keys)\n" +
+      "• OpenRouter → <code>sk-or-…</code> (openrouter.ai/keys)\n" +
+      "• HuggingFace → <code>hf_…</code> (huggingface.co/settings/tokens)\n" +
+      "Then just chat — I answer using YOUR key. Commands: /mykey · /help\n" +
+      "All AI tools also live in the Super AI app (no key needed there).\n\n" +
       "📲 Download: " + STORE, menu);
     return;
   }
-  if (cmd === "/img" || cmd === "/image") {
-    const idea = text.slice(text.indexOf(cmd) + cmd.length).trim() || "a futuristic AI city";
-    await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId, "🎨 Generating \"" + idea.slice(0, 80) + "\"…");
-    try {
-      const buf = await generateImage(idea, ENV, { width: 1024, height: 1024 });
-      if (buf && buf.byteLength) {
-        const b64 = Buffer.from(buf).toString("base64");
-        await tgSendPhoto(ENV.FREE_AI_BOT_TOKEN, chatId, b64, "🎨 " + idea.slice(0, 200) + "\n📲 Make more in the app: " + STORE);
-        return;
-      }
-    } catch (e) {}
-    await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId, "⚠️ Image generation is busy — try the app: " + STORE, menu);
+  // Any other text: answer only if the user has connected their own key.
+  const uk = await getUserAiKey(ENV, userId);
+  if (!uk) {
+    await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId,
+      "🔒 <b>AI chat is off until you connect your own key.</b>\n\n" +
+      "Paste a free <b>Gemini</b> (<code>AIza…</code>), <b>Groq</b> (<code>gsk_…</code>) or <b>OpenRouter</b> (<code>sk-or-…</code>) API key and I'll answer using it.\n" +
+      "Or use the app where AI is built in (no key needed): " + STORE, menu);
     return;
   }
-  // Any other text: answer with the AI companion (warm, helpful, app-aware).
-  let answer = await askAi(text, "gemini");
-  // Guaranteed free fallback if the router reported all providers busy.
-  if (!answer || answer.indexOf("All AI providers are busy") >= 0) {
-    answer = await callFreeAi("gemini", text);
-  }
-  await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId, "🤖 " + String(answer).slice(0, 4000));
+  await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId, "🤖 " + (await askAi(text, uk.provider, uk.key)).slice(0, 4000));
 }
 
 // Small helper so /start can report link status without awaiting resolveBotUid twice.
@@ -2202,7 +2311,7 @@ async function adminPromptKey(chatId, provider) {
 // using the existing helpers. If nothing actionable is detected, it falls back
 // to a normal AI chat answer.
 
-const ADMIN_ACTIONS = ["stats", "status", "review", "apps", "broadcast", "channel", "sync", "version", "crashlog", "report", "credit", "cleanup", "setkey", "keys", "chat", "ai", "start", "menu", "help", "img", "video", "reel", "promo", "promostats", "autopost", "credits", "setpoints", "grant", "grantme", "supabase", "yt", "ytconnect", "ytstats", "ytupdate", "crashlytics", "cf", "config", "secrets", "r2", "d1", "sql", "kv", "firebase", "adminadd", "adminrm", "admins", "store", "setlogo", "login", "teach", "learnings", "schedule", "dashboard"];
+const ADMIN_ACTIONS = ["stats", "status", "review", "apps", "broadcast", "channel", "sync", "version", "crashlog", "report", "credit", "cleanup", "setkey", "keys", "chat", "ai", "start", "menu", "help", "img", "video", "reel", "promo", "promostats", "autopost", "credits", "setpoints", "grant", "grantme", "supabase", "yt", "ytconnect", "ytstats", "ytupdate", "crashlytics", "cf", "config", "secrets", "r2", "d1", "sql", "kv", "firebase", "adminadd", "adminrm", "admins", "store", "setlogo", "userkeys", "login", "teach", "learnings", "schedule", "dashboard"];
 
 /** Master reference of every admin command: how to call it, what it does, and
  *  the natural-language phrases that should trigger it. Used to build /help and
@@ -2260,6 +2369,7 @@ const COMMAND_REFS = [
   { cmd: "/adminrm", cat: "Admins", desc: "/adminrm <chatId> — remove admin", nl: "remove admin" },
   { cmd: "/admins", cat: "Admins", desc: "List admins", nl: "list admins, who is admin" },
   { cmd: "/setlogo", cat: "App & Store", desc: "Re-apply a saved store logo", nl: "set logo, apply logo" },
+  { cmd: "/userkeys", cat: "App & Store", desc: "List users who connected a personal AI key", nl: "user keys, who connected key, list ai keys" },
 ];
 
 /** Build the /help message from COMMAND_REFS, grouped by category. */
@@ -2471,7 +2581,7 @@ async function runAdminAction(chatId, intent, from) {
         crashlytics: "/crashlytics", cf: "/cf", config: "/config", secrets: "/secrets",
         r2: "/r2", d1: "/d1", sql: "/sql", kv: "/kv", firebase: "/firebase",
         adminadd: "/adminadd", adminrm: "/adminrm", admins: "/admins", store: "/store",
-        setlogo: "/setlogo",
+        setlogo: "/setlogo", userkeys: "/userkeys",
         teach: "/teach", learnings: "/learnings", schedule: "/schedule", dashboard: "/dashboard",
       };
       const cmdText = ACTION_TO_CMD[intent.action];
@@ -3084,6 +3194,19 @@ async function handleAdmin(update) {
     const last = ENV.AAA_KV ? await ENV.AAA_KV.get("vid_last") : "";
     const full = ENV.AAA_KV ? await ENV.AAA_KV.get("vid_fullerr") : "";
     await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🎬 Last render:\n" + htmlEscape(last || "(none)") + (full ? "\n\n❌ " + htmlEscape(full) : ""));
+    return;
+  }
+  if (cmd === "/userkeys") {
+    const rows = await listUserAiKeys(ENV);
+    if (!rows.length) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🔑 No users have connected a personal AI key yet."); return; }
+    let out = "🔑 <b>Users who connected a personal AI key (" + rows.length + ")</b>\n";
+    out += rows.map(function (r) {
+      const d = r.created_at ? new Date(r.created_at).toISOString().slice(0, 16).replace("T", " ") : "?";
+      let provs = "?";
+      try { provs = Object.keys(JSON.parse(r.api_key || "{}")).join(", "); } catch (e) {}
+      return "• <code>" + String(r.uid) + "</code> · " + (provs || "gemini") + " · " + d;
+    }).join("\n");
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, out);
     return;
   }
   if (cmd === "/ytupload") {
@@ -4229,7 +4352,7 @@ async function supabaseProvision(env) {
     "CREATE TABLE IF NOT EXISTS promo_redemptions (code text, uid text, ts bigint, PRIMARY KEY (code, uid));",
     "CREATE TABLE IF NOT EXISTS yt_subs (uid text PRIMARY KEY, subscribed boolean, checked_at bigint);",
     "CREATE TABLE IF NOT EXISTS heartbeat (id text PRIMARY KEY, ts bigint);",
-    "CREATE TABLE IF NOT EXISTS heartbeat (id text PRIMARY KEY, ts bigint);",
+    "CREATE TABLE IF NOT EXISTS user_ai_keys (uid text PRIMARY KEY, provider text, api_key text, created_at bigint);",
   ].join("\n");
   // Preferred: Management API (can run DDL).
   if (env.SUPABASE_ACCESS_TOKEN && ref) {
@@ -4579,7 +4702,7 @@ async function autoPostAi(env) {
     topic + " for our Ari AI app community. Mention Ari AI naturally. Output only the post text." +
     (kb ? "\n\nReference style ideas:\n" + kb : ""), "");
   const cleanMsg = (msg && msg.length > 5) ? msg : "✨ New AI trick just dropped — open Ari AI and try it now!";
-  const post = htmlEscape(cleanMsg) + "\n\n📲 Get the app: https://aaa-store.aaateam.workers.dev/store";
+  const post = htmlEscape(cleanMsg) + "\n\n🔑 Want AI right in Telegram? Paste a FREE Gemini/Groq key to our bot — chat privately, no cost.\n\n📲 Get the app: https://aaa-store.aaateam.workers.dev/store";
 
   // 1) Generate a matching image and post it to the channel.
   const imgPrompt = "Ari AI app, " + topic + ", neon purple and pink gradient, modern flat illustration, 4k, no text";
