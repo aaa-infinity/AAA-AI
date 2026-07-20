@@ -40,8 +40,8 @@ import androidx.compose.ui.unit.dp
 import com.aaa.ai.data.ApiCategory
 import com.aaa.ai.data.ApiEndpoint
 import com.aaa.ai.ui.theme.BrandAmber
-import com.aaa.ai.ui.theme.BrandPink
-import com.aaa.ai.ui.theme.BrandPurple
+import com.aaa.ai.ui.theme.BrandBlue
+import com.aaa.ai.ui.theme.BrandCyan
 import com.aaa.ai.ui.theme.BrandTeal
 
 /**
@@ -119,10 +119,10 @@ fun EndpointCard(
 }
 
 private fun styleFor(category: ApiCategory): Pair<ImageVector, Color> = when (category) {
-    ApiCategory.AI_CHAT -> Icons.AutoMirrored.Filled.Chat to BrandPurple
+    ApiCategory.AI_CHAT -> Icons.AutoMirrored.Filled.Chat to BrandBlue
     ApiCategory.DOWNLOADERS -> Icons.Filled.Download to BrandTeal
     ApiCategory.UTILITIES -> Icons.Filled.Search to BrandAmber
     ApiCategory.ANIME -> Icons.Filled.Search to BrandAmber
-    ApiCategory.VIP_GALLERIES -> Icons.Filled.Image to BrandPink
-    ApiCategory.NSFW -> Icons.Filled.Image to BrandPink
+    ApiCategory.VIP_GALLERIES -> Icons.Filled.Image to BrandCyan
+    ApiCategory.NSFW -> Icons.Filled.Image to BrandCyan
 }

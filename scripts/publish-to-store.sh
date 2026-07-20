@@ -9,7 +9,7 @@ APK="${1:-app/build/outputs/apk/release/app-release.apk}"
 VERSION_NAME="${2:-2.2.11}"
 VERSION_CODE="${3:-19}"
 PKG="com.aaa.ai"
-ICON="https://aaa-ai-bot.aaateam.workers.dev/api/asset/public/aaa-store-logo.png"
+ICON="https://aaa-store.aaateam.workers.dev/api/asset/store/icons/superai.png"
 D1="aaa_db"
 SIZE=$(stat -c%s "$APK")
 

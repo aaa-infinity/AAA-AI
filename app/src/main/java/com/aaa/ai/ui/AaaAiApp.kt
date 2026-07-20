@@ -94,8 +94,8 @@ import com.aaa.ai.data.TelegramAuth
 import com.aaa.ai.data.UserProfile
 import com.aaa.ai.data.model.ParsedResult
 import com.aaa.ai.ui.theme.BrandAmber
-import com.aaa.ai.ui.theme.BrandPink
-import com.aaa.ai.ui.theme.BrandPurple
+import com.aaa.ai.ui.theme.BrandBlue
+import com.aaa.ai.ui.theme.BrandCyan
 import com.aaa.ai.ui.theme.BrandTeal
 import com.aaa.ai.ui.AdBanner
 import kotlinx.coroutines.launch
@@ -449,9 +449,9 @@ private fun HomeScreen(
         }.take(6)
     }
     val quick = listOf(
-        Triple("AI Chat", Icons.AutoMirrored.Filled.Chat, BrandPurple),
+        Triple("AI Chat", Icons.AutoMirrored.Filled.Chat, BrandBlue),
         Triple("Downloaders", Icons.Filled.Download, BrandTeal),
-        Triple("Studio", Icons.Filled.Build, BrandPink),
+        Triple("Studio", Icons.Filled.Build, BrandCyan),
         Triple("Gallery", Icons.Filled.Image, BrandAmber)
     )
     Column(
@@ -469,7 +469,7 @@ private fun HomeScreen(
                 modifier = Modifier.fillMaxWidth()
                     .background(
                         Brush.linearGradient(
-                            listOf(BrandPurple, BrandIndigoSafe, BrandPink)
+                            listOf(BrandBlue, BrandTeal, BrandCyan)
                         )
                     )
                     .padding(20.dp)
@@ -593,8 +593,6 @@ private fun ToolGrid(
         }
     }
 }
-
-private val BrandIndigoSafe = androidx.compose.ui.graphics.Color(0xFF536DFE)
 
 private const val ADSTERRA_URL =
     "https://www.effectivecpmnetwork.com/rvipg3yyc?key=767d22f6f278a4a969cc8bb1e977455b"

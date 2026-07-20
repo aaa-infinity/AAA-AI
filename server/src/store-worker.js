@@ -6,7 +6,7 @@ import {
   dbUpdateAppStatus, dbSupersede, dbIncDownloads, dbListApps,
   pushPending, removePending, getPendingList, createSession, getSessionUid,
   requireUser, aiGenerateListing, aiModerate, storePage, storeDetailPage,
-  uploadPage, loginPage, downloadPage, escapeHtml, json, dbAddRating, dbGetRatings, dbVersionHistory,
+  uploadPage, loginPage, downloadPage, escapeHtml, json, dbAddRating, dbGetRatings, dbVersionHistory, dbRatingSummary,
 } from "./storeShared.js";
 import { askAi, adminAi, verifyTelegramWidget, adminChannelNotify } from "./index.js";
 
@@ -67,6 +67,9 @@ async function handleStore(request, env) {
     if (!a || (a.status !== "approved" && a.owner_uid !== (uid || ""))) {
       return new Response(storeDetailPage(null, user), { headers: { "content-type": "text/html; charset=utf-8" } });
     }
+    const ratings = await dbRatingSummary(env, id).catch(() => ({ avg: 0, count: 0, reviews: [] }));
+    const versions = await dbVersionHistory(env, id).catch(() => []);
+    return new Response(storeDetailPage(a, user, ratings, versions), { headers: { "content-type": "text/html; charset=utf-8" } });
   }
   if (request.method === "GET" && (p === "/store/upload")) {
     const { uid, error } = await requireUser(request, env);
