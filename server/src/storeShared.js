@@ -1,6 +1,11 @@
 // Shared store module for the AAA App Store.
 // Imported by BOTH workers (aaa-ai-bot + aaa-store) so they share the same
 // D1 (store_users / store_apps) + R2 (apk/icons) + KV (sessions/queue).
+//
+// The public site UI is implemented in ./store-ui.js (a fresh design system);
+// the page builders below delegate to it. This file keeps the D1/KV helpers.
+
+import * as UI from "./store-ui.js";
 
 const STORE_APK_PREFIX = "store/apks/";
 const STORE_ICON_PREFIX = "store/icons/";
@@ -397,219 +402,20 @@ function storeShell(title, body, user) {
     '</body></html>';
 }
 
-function appCard(a) {
-  const icon = a.icon_url || "/api/asset/public/aaa-store-logo.png";
-  return '<a class="card" href="/store/app/' + a.id + '">' +
-    '<img class="ic" src="' + icon + '" alt="" onerror="this.src=\'/api/asset/public/aaa-store-logo.png\'">' +
-    '<div class="cat">' + (a.category || "Other") + '</div>' +
-    '<h3>' + escapeHtml(a.name) + '</h3>' +
-    '<p>' + escapeHtml(a.short_desc || "") + '</p>' +
-    '<div class="meta">⬇ ' + (a.downloads || 0) + ' downloads · v' + (a.version || "?") + '</div></a>';
-}
-
-export function storePage(list, categories, user) {
-  const chips = ['<span class="chip ' + (!list.q && !list.category ? 'active' : '') + '" onclick="location=\'/store\'">All</span>']
-    .concat(categories.map((c) =>
-      '<span class="chip ' + (list.category === c ? 'active' : '') + '" onclick="location=\'/store?category=' + encodeURIComponent(c) + '\'">' + c + '</span>'
-    )).join('');
-  const featured = '<a class="featured" href="/store/app/app_superai">' +
-    '<img src="/api/asset/public/aaa-store-logo.png" width="56" height="56" alt="Super AI">' +
-    '<div style="text-align:left"><div style="font-weight:800;font-size:1.05rem">Super AI — our flagship app</div>' +
-    '<div style="color:#a6a6b8;font-size:.85rem">Free all-in-one AI: chat, images, downloaders &amp; creative studio</div></div>' +
-    '<span class="get">Get it ↓</span></a>';
-  const body = '<header class="hero"><h1>AAA <span class="grad">App Store</span></h1>' +
-    '<p class="sub">The free, open Android app store. Get Super AI and community-made apps — no Play Store required.</p>' +
-    '<a class="btn" href="' + (user ? '/store/upload' : '/store/login') + '">⬆ Publish your app</a></header>' +
-    featured +
-    '<div class="bar"><input class="search" placeholder="Search apps…" onkeydown="if(event.key===\'Enter\')location=\'/store?q=\'+encodeURIComponent(this.value)"></div>' +
-    '<div class="bar">' + chips + '</div>' +
-    (list.apps.length ? '<div class="grid">' + list.apps.map(appCard).join('') + '</div>'
-      : '<div class="empty"><div class="big">📦</div><p>No community apps yet — be the first to publish!</p>' +
-        '<a class="btn" style="margin-top:16px" href="' + (user ? '/store/upload' : '/store/login') + '">Publish an app</a></div>');
-  return storeShell("AAA App Store", body, user);
-}
-
-export function storeDetailPage(a, user, ratings, versions) {
-  if (!a) return storeShell("Not found", "<p style='text-align:center;margin-top:60px'>App not found.</p>", user);
-  const icon = a.icon_url || "/api/asset/public/aaa-store-logo.png";
-  const dlHref = a.apk_r2_key
-    ? "/store/apks/" + encodeURIComponent(a.apk_r2_key.replace(/^store\/apks\//, "").replace(/\.apk$/, "")) + ".apk"
-    : (a.apk_url || "");
-  const dl = !dlHref
-    ? '<span class="btn" style="opacity:.6">Download unavailable</span>'
-    : (user
-        ? '<a class="btn" href="' + escapeHtml(dlHref) + (a.apk_url && !a.apk_r2_key ? '" target="_blank" rel="noopener' : '') + '">⬇ Download APK</a>'
-        : '<a class="btn" href="/store/login?next=' + encodeURIComponent(dlHref) + '">🔐 Sign in to download</a>');
-  const r = ratings || { avg: 0, count: 0, reviews: [] };
-  const stars = "★★★★★".slice(0, Math.round(r.avg)) + "☆☆☆☆☆".slice(0, 5 - Math.round(r.avg));
-  const ratingBlock = r.count
-    ? '<div style="margin:10px 0 4px;font-size:1.1rem;color:#ffd54a">' + stars +
-      ' <span style="color:#a6a6b8;font-size:.85rem">' + r.avg + ' · ' + r.count + ' rating' + (r.count === 1 ? '' : 's') + '</span></div>'
-    : '<div style="margin:10px 0 4px;color:#8a8aa0;font-size:.85rem">No ratings yet — be the first!</div>';
-  // Review list (latest 5).
-  const reviews = (r.reviews || []).slice(0, 5).map(function (rv) {
-    const s = "★★★★★".slice(0, rv.stars || 5);
-    return '<div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:12px 14px;margin:10px 0">' +
-      '<div style="color:#ffd54a;font-size:.95rem">' + s + '</div>' +
-      (rv.review ? '<div style="color:#d6d6e2;font-size:.9rem;margin-top:4px">' + escapeHtml(rv.review) + '</div>' : '') +
-      '<div style="color:#6f6f82;font-size:.72rem;margin-top:4px">' + escapeHtml(rv.uid || "anon") + '</div></div>';
-  }).join('');
-  const rateForm = user
-    ? '<form id="rf" style="margin:18px 0;display:flex;gap:10px;flex-wrap:wrap;align-items:center">' +
-      '<select name="stars" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#fff;padding:10px;border-radius:10px">' +
-      '<option value="5">★★★★★ 5</option><option value="4">★★★★ 4</option><option value="3">★★★ 3</option><option value="2">★★ 2</option><option value="1">★ 1</option></select>' +
-      '<input name="review" placeholder="Write a review…" maxlength="500" style="flex:1;min-width:200px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#fff;padding:10px;border-radius:10px">' +
-      '<button type="submit" class="btn" style="padding:10px 18px">Rate</button></form>' +
-      '<script>document.getElementById("rf").onsubmit=async function(e){e.preventDefault();var f=this;var d=JSON.stringify({stars:f.stars.value,review:f.review.value});' +
-      'var r=await fetch("/api/store/apps/' + a.id + '/rate",{method:"POST",headers:{"content-type":"application/json","x-session":localStorage.getItem("sess")||""},body:d});' +
-      'var j=await r.json();if(j.ok){location.reload();}else{alert(j.error||"failed");}};</script>'
-    : '<div style="margin:16px 0"><a class="btn" href="/store/login">Sign in to rate</a></div>';
-  const verBlock = (versions && versions.length)
-    ? '<div style="margin:24px 0"><h3 style="margin-bottom:10px">📜 Version history</h3>' +
-      versions.map(function (v) {
-        return '<div style="padding:10px 0;border-top:1px solid rgba(255,255,255,.06)"><b>v' + escapeHtml(v.version) + '</b>' +
-          (v.size ? ' · ' + Math.round(v.size / 1048576) + ' MB' : '') +
-          (v.changelog ? '<div style="color:#a6a6b8;font-size:.85rem;margin-top:4px">' + escapeHtml(v.changelog) + '</div>' : '') + '</div>';
-      }).join('') + '</div>'
-    : '';
-  const body = '<div class="detail" style="padding-top:40px">' +
-    '<img class="ic" src="' + icon + '" alt="" onerror="this.src=\'/api/asset/public/aaa-store-logo.png\'">' +
-    '<h1 style="margin:16px 0 4px">' + escapeHtml(a.name) + '</h1>' +
-    '<div class="cat">' + (a.category || "Other") + (a.version ? ' · v' + a.version : '') + (a.min_android ? ' · Android ' + a.min_android + '+' : '') + '</div>' +
-    ratingBlock +
-    '<p style="color:#cfcfdd;margin:18px 0;line-height:1.7">' + escapeHtml(a.long_desc || a.short_desc || "") + '</p>' +
-    '<div style="margin:20px 0">' + dl + '</div>' +
-    '<div class="meta" style="margin-bottom:10px">⬇ ' + (a.downloads || 0) + ' downloads</div>' +
-    rateForm +
-    (reviews ? '<div style="margin-top:8px">' + reviews + '</div>' : '') +
-    verBlock +
-    '</div>';
-  return storeShell(a.name + " · AAA App Store", body, user);
-}
-
-export function uploadPage(user) {
-  const body = '<div class="form"><h2 style="margin-bottom:6px">Publish an app</h2>' +
-    '<p style="color:#a6a6b8;margin-bottom:8px">Fill in the details. AI will polish the listing; an admin approves before it goes live.</p>' +
-    '<form id="f">' +
-    '<label>App name *</label><input name="name" required maxlength="80">' +
-    '<label>Category</label><select name="category">' + STORE_CATEGORIES.map((c) => '<option>' + c + '</option>').join('') + '</select>' +
-    '<label>Version (e.g. 1.0.0)</label><input name="version" maxlength="20">' +
-    '<label>Package name (e.g. com.acme.app)</label><input name="package_name" maxlength="120">' +
-    '<label>Min Android (e.g. 7.0)</label><input name="min_android" maxlength="10">' +
-    '<label>Short description</label><textarea name="short_desc" rows="2" maxlength="200"></textarea>' +
-    '<label>Long description</label><textarea name="long_desc" rows="5" maxlength="2000"></textarea>' +
-    '<label>Icon URL</label><input name="icon_url" placeholder="https://…" maxlength="500">' +
-    '<div class="toggle"><button type="button" id="tR2" class="active" onclick="selMode(\'r2\')">Host APK with us</button>' +
-    '<button type="button" id="tLink" onclick="selMode(\'link\')">External link</button></div>' +
-    '<div id="r2box"><label>APK file (max 100 MB)</label><input type="file" name="apk" accept=".apk,application/vnd.android.package-archive"></div>' +
-    '<div id="linkbox" style="display:none"><label>External download URL</label><input name="apk_url" placeholder="https://…" maxlength="500"></div>' +
-    '<button class="btn" type="submit" style="margin-top:18px;width:100%;justify-content:center">Submit for review</button>' +
-    '<p id="msg" style="margin-top:12px;color:#ff9b9b"></p></form>' +
-    '<script>function selMode(m){document.getElementById("r2box").style.display=m===\'r2\'?\'block\':\'none\';' +
-    'document.getElementById("linkbox").style.display=m===\'link\'?\'block\':\'none\';' +
-    'document.getElementById("tR2").classList.toggle("active",m===\'r2\');document.getElementById("tLink").classList.toggle("active",m===\'link\');}' +
-    'document.getElementById("f").addEventListener("submit",async function(e){e.preventDefault();' +
-    'var fd=new FormData(this);var m=document.getElementById("r2box").style.display!=="none"?"r2":"link";' +
-    'var body=new FormData();["name","category","version","package_name","min_android","short_desc","long_desc","icon_url"].forEach(function(k){body.append(k,fd.get(k)||"")});' +
-    'if(m==="link"){body.append("apk_url",fd.get("apk_url")||"");}else{var f=fd.get("apk");if(f&&f.size)body.append("apk",f);}' +
-    'var r=await fetch("/api/store/apps",{method:"POST",headers:{"x-session":new URLSearchParams(location.search).get("t")||localStorage.getItem("sess")||""},body:body});' +
-    'var j=await r.json();document.getElementById("msg").textContent=j.ok?"✅ Submitted! Pending admin approval.":(j.error||"Failed");});</script></div>';
-  return storeShell("Publish · AAA App Store", body, user);
-}
-
-export function escapeHtml(s) {
+function escapeHtml(s) {
   return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// Landing page that explains Super AI and how to get a free AI key, then installs.
-export function downloadPage(user) {
-  const steps = [
-    { h: "Install Super AI", p: "Download the free Android APK from our store — no Play Store account needed." },
-    { h: "Get a free AI key (optional)", p: "For private, unlimited Telegram chat, grab a free Gemini (AIza…) or Groq (gsk_…) key. Or just use the app where AI is built in." },
-    { h: "Chat, create & download", p: "Use the all-in-one studio: AI chat, image & video generation, and downloaders." },
-  ];
-  const body = '<div class="detail" style="padding-top:48px;text-align:center">' +
-    '<img class="ic" src="/api/asset/public/aaa-store-logo.png" alt="Super AI" onerror="this.style.display=\'none\'">' +
-    '<h1 style="margin:16px 0 4px">Super AI — free all-in-one AI</h1>' +
-    '<p class="sub" style="margin:0 auto 8px">Chat, generate images & videos, and download anything. Get a free AI key and talk to our Telegram bot too.</p>' +
-    '<div style="margin:22px 0"><a class="btn" href="/store/app/app_superai">⬇ Download for Android</a></div>' +
-    '<div class="steps">' +
-    steps.map(function (s, i) {
-      return '<div class="step"><div class="n">' + (i + 1) + '</div><div><h4>' + escapeHtml(s.h) + '</h4><p>' + escapeHtml(s.p) + '</p></div></div>';
-    }).join('') +
-    '</div>' +
-    '<p style="color:var(--muted);margin:18px 0 4px">Free AI keys: ' +
-    '<a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Gemini</a> · ' +
-    '<a href="https://console.groq.com/keys" target="_blank" rel="noopener">Groq</a> · ' +
-    '<a href="https://openrouter.ai/keys" target="_blank" rel="noopener">OpenRouter</a></p>' +
-    '</div>';
-  return storeShell("Download Super AI — AAA App Store", body, user);
+// ---- Fresh UI (delegates to ./store-ui.js) ----
+export function appCard(a) { return UI.appCard(a); }
+export function storePage(list, categories, user) { return UI.homePage(list, categories, user); }
+export function storeDetailPage(a, user, ratings, versions) { return UI.detailPage(a, user, ratings, versions); }
+export function uploadPage(user) { return UI.uploadPage(user); }
+export function downloadPage(available, versionName, sizeLabel, stats, changelog, qr) {
+  return UI.downloadPage(available, versionName, sizeLabel, stats, changelog, qr);
 }
-
-export function profilePage(user) {
-  if (!user) return storeShell("Your profile", "<p style='text-align:center;margin-top:60px'>Not signed in.</p>", user);
-  const avatar = user.photo_url
-    ? '<img class="p-av" src="' + escapeHtml(user.photo_url) + '" alt="">'
-    : '<div class="p-av p-av--i">' + escapeHtml((user.display_name || user.tg_username || "U").slice(0, 1).toUpperCase()) + '</div>';
-  const name = user.display_name || user.tg_username || user.uid || "User";
-  const tg = user.telegram_id;
-  const rows = [
-    ["Telegram ID", tg ? escapeHtml(String(tg)) : "<span class='muted'>not linked</span>"],
-    ["Account UID", escapeHtml(user.uid || "")],
-    ["Username", user.tg_username ? "@" + escapeHtml(user.tg_username) : "<span class='muted'>—</span>"],
-    ["First name", user.first_name ? escapeHtml(user.first_name) : "<span class='muted'>—</span>"],
-    ["Last name", user.last_name ? escapeHtml(user.last_name) : "<span class='muted'>—</span>"],
-    ["Premium", user.is_premium ? "⭐ Yes" : "No"],
-    ["Language", user.language_code ? escapeHtml(user.language_code) : "<span class='muted'>—</span>"],
-    ["Phone", user.phone ? escapeHtml(user.phone) : "<span class='muted'>—</span>"],
-    ["Admin", user.is_admin ? "Yes" : "No"],
-  ];
-  const grid = rows.map(function (r) {
-    return '<div class="kv"><div class="k">' + r[0] + '</div><div class="v">' + r[1] + '</div></div>';
-  }).join("");
-  const body =
-    '<div class="card p-card">' +
-    '<div class="p-head">' + avatar +
-    '<div><div class="p-name">' + escapeHtml(name) + (user.is_premium ? ' <span class="p-prem">⭐ Premium</span>' : '') + '</div>' +
-    '<div class="p-sub">' + (user.tg_username ? "@" + escapeHtml(user.tg_username) : escapeHtml(user.uid || "")) + '</div></div></div>' +
-    '<div class="kv-grid">' + grid + '</div>' +
-    '<div class="bar" style="margin-top:20px"><a class="btn" href="/store">← Back to store</a></div>' +
-    '</div>';
-  return storeShell("Your profile · Super AI Store", body, user);
-}
-
-export function loginPage(user, opts) {
-  opts = opts || {};
-  const bot = opts.botUsername || "AAA_Login_bot";
-  const domain = opts.loginDomain || "app2629244753-login.tg.dev";
-  const verifyUrl = opts.authUrl || ((opts.botOrigin || "https://aaa-ai-bot.aaateam.workers.dev") + "/api/telegram-widget-verify");
-  const next = opts.next || "/store";
-  const body = '<div class="form" style="max-width:460px;text-align:center">' +
-    '<h2 style="margin-bottom:6px">Sign in to the App Store</h2>' +
-    '<p style="color:#a6a6b8;margin-bottom:18px">Connect your Telegram account to publish and manage apps.</p>' +
-    '<div class="tg" style="margin:18px 0"><script async src="https://telegram.org/js/telegram-widget.js?22" ' +
-    'data-telegram-login="' + escapeHtml(bot) + '" data-size="large" data-userpic="false" data-radius="16" ' +
-    'data-auth-url="' + escapeHtml(verifyUrl) + '" data-request-access="write"></script></div>' +
-    '<div style="margin:14px 0;color:#6f6f82">or</div>' +
-    '<div style="text-align:left"><label>Sign in with a Telegram link code</label>' +
-    '<p style="color:#a6a6b8;font-size:.85rem;margin-bottom:10px">Open the Super AI app → Settings → "Link this account", copy the 6-character code, paste it below.</p>' +
-    '<input id="code" placeholder="ABC123" maxlength="12" style="text-transform:uppercase;letter-spacing:2px;text-align:center">' +
-    '<button class="btn" id="codeBtn" style="margin-top:14px;width:100%;justify-content:center">Verify code</button>' +
-    '<p id="msg" style="margin-top:12px;color:#ff9b9b"></p></div>' +
-    '<script>' +
-    'function saveSess(t){try{localStorage.setItem("sess",t);}catch(e){}}' +
-    'var NEXT=' + JSON.stringify(next) + ';' +
-    // The widget verify returns a real session token (type tg-store-login).
-    'window.addEventListener("message",function(e){if(e.data&&e.data.type==="tg-store-login"&&e.data.token){saveSess(e.data.token);location.href=NEXT;}});' +
-    'document.getElementById("codeBtn").addEventListener("click",async function(){' +
-    'var c=document.getElementById("code").value.trim();if(!c){document.getElementById("msg").textContent="Enter a code.";return;}' +
-    'var r=await fetch("/api/store/login",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({code:c})});' +
-    'var j=await r.json();if(j.ok){saveSess(j.token);location.href=NEXT;}else{document.getElementById("msg").textContent=j.error||"Invalid code.";}});' +
-    '</script></div>';
-  return storeShell("Sign in · Super AI Store", body, user);
-}
-
-
+export function profilePage(user) { return UI.profilePage(user); }
+export function loginPage(user, opts) { return UI.loginPage(opts || {}); }
 
 // Re-export json for workers that need it
-export { json };
+export { json, escapeHtml };

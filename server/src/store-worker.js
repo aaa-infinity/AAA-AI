@@ -328,6 +328,9 @@ export default {
     ENV = env || {};
     const res = await handleStore(request, env);
     if (res) return res;
+    // Redirect any unknown path (incl. the old bare root) to the redesigned store.
+    const origin = (env && env.PUBLIC_ORIGIN) || "https://aaa-store.aaateam.workers.dev";
+    if (request.method === "GET") return Response.redirect(origin + "/store", 302);
     return new Response("Ari AI App Store.", { headers: { "content-type": "text/plain" } });
   },
 };
