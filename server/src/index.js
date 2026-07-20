@@ -1821,8 +1821,9 @@ async function generateVideoShotstack(prompt, env, useProd, vertical, type, prom
     if (env.aaa_assets) clips.push({ asset: { type: "image", src: origin + "/api/asset/public/aaa-store-logo.png" }, start: t, length: sceneLen, position: "topRight", scale: 0.12, opacity: 0.8 });
     t += sceneLen;
   }
-  // Branded end-card CTA (single clip, small text so it never gets cut off).
-  clips.push({ asset: { type: "title", text: "Get Super AI 👉 aaa-store.aaateam.workers.dev", style: "subtitle", size: "small" }, start: t, length: 2, position: "center" });
+  // Branded end-card CTA (short branding only — the store link lives in the
+  // video description, not on-screen, so on-video text stays small & clean).
+  clips.push({ asset: { type: "title", text: "Get Super AI — link below 👇", style: "subtitle", size: "small" }, start: t, length: 2, position: "center" });
   t += 2;
   // Optional visible promo code overlay — shown AFTER the CTA (no overlap) so the
   // code is clearly readable on screen, not doubled up with the CTA text.
@@ -3700,7 +3701,7 @@ async function handleAdmin(update) {
       } catch (e) { videoUrl = null; }
     }
     if (!buf && !videoUrl) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Video generation failed (Shotstack API error or no credits)."); return; }
-    const caption = "🎬 <b>" + htmlEscape(prompt.slice(0, 200)) + "</b>\n<i>Rendered by the Ari AI engine</i>";
+    const caption = "🎬 <b>" + htmlEscape(prompt.slice(0, 200)) + "</b>\n<i>Rendered by the Ari AI engine</i>\n🔗 Get the app: https://aaa-store.aaateam.workers.dev/store";
     const cacheKey = "temp/last_reel.mp4";
     // If we only have a URL, download it to a buffer so caching/YouTube/Telegram
     // all use a verified video (and we avoid caching an HTML error page).
@@ -4438,7 +4439,7 @@ async function weeklyPromo(env) {
     "app and redeem the code in Profile. Do NOT write the code itself — it is shown on the video. " +
     "Output only the post text.", "");
   const post = (msg && msg.length > 5 ? htmlEscape(msg) : ("🎁 Limited drop! First 30 users get 7 days PREMIUM free. Open the Ari AI app to redeem.")) +
-    "\n\n👥 First " + promo.maxRedemptions + " users only!";
+    "\n\n👥 First " + promo.maxRedemptions + " users only!\n🔗 Get the app: https://aaa-store.aaateam.workers.dev/store";
   // Generate a vertical 9:16 promo SHORT via the Shotstack image pipeline
   // (reliable, free) and post it to Telegram + YouTube as a Short.
   let videoBuf = null;
