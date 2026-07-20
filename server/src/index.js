@@ -1822,11 +1822,13 @@ async function generateVideoShotstack(prompt, env, useProd, vertical, type, prom
     t += sceneLen;
   }
   // Branded end-card CTA (single clip, small text so it never gets cut off).
-  clips.push({ asset: { type: "title", text: "Get Super AI 👉 aaa-store.aaateam.workers.dev", style: "subtitle", size: "small" }, start: t, length: 2.5, position: "center" });
-  t += 2.5;
-  // Optional visible promo code overlay (so the code is ON the video, not just the caption).
+  clips.push({ asset: { type: "title", text: "Get Super AI 👉 aaa-store.aaateam.workers.dev", style: "subtitle", size: "small" }, start: t, length: 2, position: "center" });
+  t += 2;
+  // Optional visible promo code overlay — shown AFTER the CTA (no overlap) so the
+  // code is clearly readable on screen, not doubled up with the CTA text.
   if (promoCode) {
-    clips.push({ asset: { type: "title", text: "🎁 CODE: " + promoCode, style: "minimal", size: "medium" }, start: t - 2.5, length: 2.5, position: "bottom" });
+    clips.push({ asset: { type: "title", text: "CODE: " + promoCode, style: "subtitle", size: "small" }, start: t, length: 2.5, position: "center" });
+    t += 2.5;
   }
 
   // Audio: AI voiceover (the script) on top + royalty-free background music, both
