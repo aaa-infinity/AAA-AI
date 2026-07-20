@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -114,15 +115,84 @@ fun ProfileScreen(
     ) {
         if (tgSession.verified) {
             item {
+                val p = tgSession.profile
                 Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth()) {
-                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = androidx.compose.ui.graphics.Color(0xFF229ED9))
-                        Column(modifier = Modifier.padding(start = 12.dp)) {
-                            Text("Telegram Account", style = MaterialTheme.typography.titleMedium)
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = androidx.compose.ui.graphics.Color(0xFF229ED9))
+                            Text("  Telegram Account", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 8.dp))
+                            if (p.isPremium) Text("  ⭐ Premium", color = androidx.compose.ui.graphics.Color(0xFFFFD54A), style = MaterialTheme.typography.bodySmall)
+                        }
+                        val tgRows = listOfNotNull(
+                            "ID" to (p.id.ifBlank { tgSession.chatId }.takeIf { it.isNotBlank() }),
+                            "Username" to p.username.takeIf { it.isNotBlank() }?.let { "@$it" },
+                            "First name" to p.firstName.takeIf { it.isNotBlank() },
+                            "Last name" to p.lastName.takeIf { it.isNotBlank() },
+                            "Language" to p.languageCode.takeIf { it.isNotBlank() },
+                            "Phone" to p.phone.takeIf { it.isNotBlank() },
+                        )
+                        Column(modifier = Modifier.padding(top = 10.dp)) {
+                            tgRows.forEach { (k, v) ->
+                                Row(modifier = Modifier.padding(vertical = 3.dp)) {
+                                    Text(k, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(90.dp))
+                                    Text(v ?: "—", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            item {
+                val tgState by authViewModel.tgState.collectAsState()
+                var linkCode by remember { mutableStateOf("") }
+                Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = androidx.compose.ui.graphics.Color(0xFF229ED9))
+                            Text("  Link Telegram", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 8.dp))
+                        }
+                        Text(
+                            "Connect Telegram to sign in on any device and sync your wallet.",
+                            style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp)
+                        )
+                        Button(
+                            onClick = { authViewModel.startTelegramLogin() },
+                            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                            enabled = tgState !is AuthViewModel.TelegramLoginState.Polling
+                        ) {
+                            if (tgState is AuthViewModel.TelegramLoginState.Polling) {
+                                androidx.compose.material3.CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp).padding(end = 8.dp), strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
+                                Text("Open Telegram & tap Start…")
+                            } else {
+                                Text("🔐 Link via Telegram (one tap)")
+                            }
+                        }
+                        Text("Or paste the code from @AAA_Login_bot:", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 10.dp))
+                        OutlinedTextField(
+                            value = linkCode, onValueChange = { linkCode = it.uppercase().trim() },
+                            label = { Text("Link code") }, singleLine = true,
+                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+                        )
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    val ok = com.aaa.ai.data.TelegramAuth.submitCode(ctx, linkCode, userId ?: "")
+                                    if (!ok) android.widget.Toast.makeText(ctx, "Invalid or expired code", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            enabled = linkCode.length >= 6
+                        ) { Text("Verify code") }
+                        if (tgState is AuthViewModel.TelegramLoginState.Failed) {
                             Text(
-                                tgSession.profile.displayName.ifBlank { "@${tgSession.profile.username}".ifBlank { tgSession.chatId } },
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.primary
+                                (tgState as AuthViewModel.TelegramLoginState.Failed).message,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(top = 6.dp)
                             )
                         }
                     }

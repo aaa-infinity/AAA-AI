@@ -2234,15 +2234,22 @@ async function handleLogin(update) {
         return;
       }
     }
-    // Manual code flow.
+    // Manual code flow. The code is shown in a copyable monospace block and a
+    // one-tap "Copy code" inline button so users never have to retype it.
     const code = Math.random().toString(36).slice(2, 8).toUpperCase();
     await saveTgProfile(from, { photoUrl: photoUrl });
     await ENV.AAA_KV.put("login:" + code, JSON.stringify({ chatId: chatId, profile: await saveTgProfile(from, { photoUrl: photoUrl }) }), { expirationTtl: 600 });
+    const copyKb = {
+      inline_keyboard: [[
+        { text: "📋 Copy code", copy_text: { text: code } },
+        { text: "🔐 Open app", url: (ENV.PUBLIC_ORIGIN || "https://aaa-store.aaateam.workers.dev") + "/download" },
+      ]],
+    };
     await tgSend(ENV.LOGIN_BOT_TOKEN, chatId,
       "<b>Ari AI Login</b>\nYour link code (valid 10 min):\n\n<code>" + code + "</code>\n\n" +
-      "Open Ari AI → Profile → Link Telegram and enter this code.\n\n" +
-      "Optionally, share your phone number below to complete your profile.",
-      { reply_markup: contactKeyboard });
+      "👉 Tap <b>📋 Copy code</b> above, then open the Super AI app → <b>Profile → Link Telegram</b> and paste it.\n\n" +
+      "(You can link your phone number later from Profile.)",
+      { reply_markup: copyKb });
     return;
   }
   await tgSend(ENV.LOGIN_BOT_TOKEN, chatId, "👋 Send /start to sign in to Ari AI.");
@@ -3520,9 +3527,10 @@ async function handleAdmin(update) {
   }
 
   if (cmd === "/grantme") {
-    // Owner/admin self-premium — grant 365 days to the chat id's linked app uid.
+    // Owner/admin self-premium — grant 365 days to the chat id (the uid is the
+    // Telegram id, shared with the app + store).
     const linked = ENV.AAA_KV ? await ENV.AAA_KV.get("tg_link:" + chatId) : null;
-    const uid = linked || ("tg_" + chatId);
+    const uid = linked || String(chatId);
     await grantPremium(ENV, uid, 365);
     await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "✅ Granted yourself Premium (365 days) on uid <code>" + htmlEscape(uid) + "</code>.");
     return;
@@ -4882,7 +4890,20 @@ async function handle(request, env, ctx) {
       if (!chatId || !uid) return json({ ok: false, error: "missing chatId or uid" }, 400);
       // Link a Telegram user id to the app wallet so bot points are shared.
       await ENV.AAA_KV.put("tg_link:" + chatId, uid, { expirationTtl: 60 * 60 * 24 * 365 });
-      return json({ ok: true, linked: uid });
+      // Record the Telegram id on the store user row so the profile page can
+      // show both the app uid and the linked Telegram id.
+      if (ENV.AAA_DB) {
+        const p = await ENV.AAA_KV.get("profile:" + chatId);
+        let prof = null; try { prof = p ? JSON.parse(p) : null; } catch (e) {}
+        await ENV.AAA_DB.prepare(
+          "UPDATE store_users SET telegram_id=?, tg_username=COALESCE(NULLIF(?,''),tg_username), " +
+          "first_name=COALESCE(NULLIF(?,''),first_name), last_name=COALESCE(NULLIF(?,''),last_name), " +
+          "photo_url=COALESCE(NULLIF(?,''),photo_url), is_premium=COALESCE(is_premium,?), updated_at=? " +
+          "WHERE uid=?"
+        ).bind(chatId, prof?.username || "", prof?.firstName || "", prof?.lastName || "",
+          prof?.photoUrl || "", prof?.isPremium ? 1 : 0, Date.now(), uid).run();
+      }
+      return json({ ok: true, linked: uid, telegram_id: chatId });
     }
     if (request.method === "GET" && url.pathname === "/api/profile") {
       const id = (url.searchParams.get("id") || "").trim();

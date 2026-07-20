@@ -25,19 +25,34 @@ export async function dbGetUser(env, uid) {
 export async function dbUpsertUser(env, profile) {
   if (!env.AAA_DB) return null;
   const uid = String(profile.uid || profile.id);
+  const first = profile.first_name || profile.firstName || "";
+  const last = profile.last_name || profile.lastName || "";
+  const disp = profile.display_name || [first, last].filter(Boolean).join(" ") || "";
+  const phone = profile.phone || "";
+  const lang = profile.language_code || profile.languageCode || "";
+  const premium = profile.is_premium || profile.isPremium ? 1 : 0;
+  // The Telegram id: an explicit telegram_id, or — for Telegram widget logins —
+  // the uid itself. App-only users may have no Telegram id until they link one.
+  const tgId = profile.telegram_id != null && profile.telegram_id !== ""
+    ? String(profile.telegram_id)
+    : (profile.fromTg ? uid : "");
   const existing = await dbGetUser(env, uid);
   if (existing) {
+    const nextTg = (tgId || existing.telegram_id || null);
     await env.AAA_DB.prepare(
-      "UPDATE store_users SET tg_username=?, display_name=?, photo_url=? WHERE uid=?"
-    ).bind(profile.username || existing.tg_username, profile.display_name || existing.display_name,
-      profile.photo_url || existing.photo_url, uid).run();
+      "UPDATE store_users SET tg_username=?, display_name=?, photo_url=?, first_name=?, last_name=?, " +
+      "is_premium=?, language_code=?, phone=?, telegram_id=?, updated_at=? WHERE uid=?"
+    ).bind(profile.username || existing.tg_username, disp || existing.display_name,
+      profile.photo_url || existing.photo_url, first || existing.first_name, last || existing.last_name,
+      premium, lang || existing.language_code, phone || existing.phone, nextTg, Date.now(), uid).run();
     return existing;
   }
   await env.AAA_DB.prepare(
-    "INSERT INTO store_users (uid, tg_username, display_name, photo_url, is_admin, apps_count, created_at) " +
-    "VALUES (?,?,?,?,?,0,?)"
-  ).bind(uid, profile.username || "", profile.display_name || "", profile.photo_url || "",
-    profile.is_admin ? 1 : 0, Date.now()).run();
+    "INSERT INTO store_users (uid, tg_username, display_name, photo_url, first_name, last_name, " +
+    "is_premium, language_code, phone, telegram_id, is_admin, apps_count, created_at, updated_at) " +
+    "VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?,?)"
+  ).bind(uid, profile.username || "", disp, profile.photo_url || "", first, last,
+    premium, lang, phone, tgId || null, profile.is_admin ? 1 : 0, Date.now(), Date.now()).run();
   return dbGetUser(env, uid);
 }
 
@@ -296,6 +311,9 @@ function storeShell(title, body, user) {
     '<a class="nav-fb" href="https://www.facebook.com/share/1BzWH5P2bF/" target="_blank" rel="noopener">f</a>' +
     '<a class="dl ghost" href="/download">Get app</a>' +
     (user ? '<a class="dl" href="/store/upload">Upload app</a>' : '<a class="dl" href="/store/login">Sign in</a>') +
+    (user ? '<a class="chip" href="/store/me">' +
+      (user.photo_url ? '<img class="chip-av" src="' + escapeHtml(user.photo_url) + '" alt="">' : '<span class="chip-av chip-av--i">' + escapeHtml((user.display_name || user.tg_username || "U").slice(0, 1).toUpperCase()) + '</span>') +
+      '<span class="chip-name">' + escapeHtml(user.display_name || user.tg_username || user.uid) + (user.is_premium ? ' ⭐' : '') + '</span></a>' : '') +
     (user ? '<a class="dl ghost" href="#" onclick="logout();return false;">Sign out</a>' : '') +
     '</div></div></nav>';
   return '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
@@ -318,6 +336,22 @@ function storeShell(title, body, user) {
     '.nav-actions{display:flex;align-items:center;gap:10px}' +
     '.nav-fb{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:rgba(59,89,152,.18);border:1px solid rgba(59,89,152,.5);color:#9db4ff;font-weight:800}' +
     '.theme-btn{cursor:pointer;background:var(--input);border:1px solid var(--border);color:var(--fg);width:34px;height:34px;border-radius:50%;font-size:1rem}' +
+    '.chip{display:inline-flex;align-items:center;gap:8px;padding:5px 12px 5px 5px;border-radius:50px;background:var(--input);border:1px solid var(--border);font-weight:600;font-size:.85rem}' +
+    '.chip-av{width:26px;height:26px;border-radius:50%;object-fit:cover;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:.8rem;background:linear-gradient(135deg,#7c4dff,#ff4d9d);color:#fff}' +
+    '.chip-av--i{width:26px;height:26px}' +
+    '.chip-name{max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+    '.card{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:26px;max-width:620px;margin:30px auto}' +
+    '.p-card{text-align:left}' +
+    '.p-head{display:flex;align-items:center;gap:16px;margin-bottom:18px}' +
+    '.p-av{width:64px;height:64px;border-radius:50%;object-fit:cover}' +
+    '.p-av--i{display:inline-flex;align-items:center;justify-content:center;font-size:1.6rem;font-weight:800;color:#fff;background:linear-gradient(135deg,#7c4dff,#ff4d9d)}' +
+    '.p-name{font-size:1.3rem;font-weight:800}.p-sub{color:var(--muted);font-size:.9rem}' +
+    '.p-prem{font-size:.8rem;font-weight:700;color:#ffd54a}' +
+    '.kv-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}' +
+    '.kv{background:var(--input);border:1px solid var(--border);border-radius:12px;padding:12px 14px}' +
+    '.kv .k{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}' +
+    '.kv .v{font-size:1rem;font-weight:600;margin-top:3px;word-break:break-word}' +
+    '.muted{color:var(--muted)}' +
     '.hero{position:relative;overflow:hidden;text-align:center;padding:72px 20px 48px;background:radial-gradient(circle at 50% 0%,rgba(124,77,255,.4),transparent 60%)}' +
     '.hero::before{content:"";position:absolute;inset:-40% -20% auto -20%;height:420px;z-index:-1;background:radial-gradient(circle at 70% 30%,rgba(255,77,157,.32),transparent 55%);filter:blur(40px)}' +
     '.hero h1{font-size:clamp(2rem,5vw,3rem);font-weight:800}.grad{background:linear-gradient(135deg,#a98bff,#ff8fc0);-webkit-background-clip:text;background-clip:text;color:transparent}' +
@@ -398,9 +432,14 @@ export function storePage(list, categories, user) {
 export function storeDetailPage(a, user, ratings, versions) {
   if (!a) return storeShell("Not found", "<p style='text-align:center;margin-top:60px'>App not found.</p>", user);
   const icon = a.icon_url || "/api/asset/public/aaa-store-logo.png";
-  const dl = a.apk_r2_key
-    ? '<a class="btn" href="/store/apks/' + encodeURIComponent(a.apk_r2_key.replace(/^store\/apks\//, "").replace(/\.apk$/, "")) + '.apk">⬇ Download APK</a>'
-    : (a.apk_url ? '<a class="btn" href="' + escapeHtml(a.apk_url) + '" target="_blank" rel="noopener">⬇ Get it here</a>' : '<span class="btn" style="opacity:.6">Download unavailable</span>');
+  const dlHref = a.apk_r2_key
+    ? "/store/apks/" + encodeURIComponent(a.apk_r2_key.replace(/^store\/apks\//, "").replace(/\.apk$/, "")) + ".apk"
+    : (a.apk_url || "");
+  const dl = !dlHref
+    ? '<span class="btn" style="opacity:.6">Download unavailable</span>'
+    : (user
+        ? '<a class="btn" href="' + escapeHtml(dlHref) + (a.apk_url && !a.apk_r2_key ? '" target="_blank" rel="noopener' : '') + '">⬇ Download APK</a>'
+        : '<a class="btn" href="/store/login?next=' + encodeURIComponent(dlHref) + '">🔐 Sign in to download</a>');
   const r = ratings || { avg: 0, count: 0, reviews: [] };
   const stars = "★★★★★".slice(0, Math.round(r.avg)) + "☆☆☆☆☆".slice(0, 5 - Math.round(r.avg));
   const ratingBlock = r.count
@@ -507,11 +546,44 @@ export function downloadPage(user) {
   return storeShell("Download Super AI — AAA App Store", body, user);
 }
 
+export function profilePage(user) {
+  if (!user) return storeShell("Your profile", "<p style='text-align:center;margin-top:60px'>Not signed in.</p>", user);
+  const avatar = user.photo_url
+    ? '<img class="p-av" src="' + escapeHtml(user.photo_url) + '" alt="">'
+    : '<div class="p-av p-av--i">' + escapeHtml((user.display_name || user.tg_username || "U").slice(0, 1).toUpperCase()) + '</div>';
+  const name = user.display_name || user.tg_username || user.uid || "User";
+  const tg = user.telegram_id;
+  const rows = [
+    ["Telegram ID", tg ? escapeHtml(String(tg)) : "<span class='muted'>not linked</span>"],
+    ["Account UID", escapeHtml(user.uid || "")],
+    ["Username", user.tg_username ? "@" + escapeHtml(user.tg_username) : "<span class='muted'>—</span>"],
+    ["First name", user.first_name ? escapeHtml(user.first_name) : "<span class='muted'>—</span>"],
+    ["Last name", user.last_name ? escapeHtml(user.last_name) : "<span class='muted'>—</span>"],
+    ["Premium", user.is_premium ? "⭐ Yes" : "No"],
+    ["Language", user.language_code ? escapeHtml(user.language_code) : "<span class='muted'>—</span>"],
+    ["Phone", user.phone ? escapeHtml(user.phone) : "<span class='muted'>—</span>"],
+    ["Admin", user.is_admin ? "Yes" : "No"],
+  ];
+  const grid = rows.map(function (r) {
+    return '<div class="kv"><div class="k">' + r[0] + '</div><div class="v">' + r[1] + '</div></div>';
+  }).join("");
+  const body =
+    '<div class="card p-card">' +
+    '<div class="p-head">' + avatar +
+    '<div><div class="p-name">' + escapeHtml(name) + (user.is_premium ? ' <span class="p-prem">⭐ Premium</span>' : '') + '</div>' +
+    '<div class="p-sub">' + (user.tg_username ? "@" + escapeHtml(user.tg_username) : escapeHtml(user.uid || "")) + '</div></div></div>' +
+    '<div class="kv-grid">' + grid + '</div>' +
+    '<div class="bar" style="margin-top:20px"><a class="btn" href="/store">← Back to store</a></div>' +
+    '</div>';
+  return storeShell("Your profile · Super AI Store", body, user);
+}
+
 export function loginPage(user, opts) {
   opts = opts || {};
   const bot = opts.botUsername || "AAA_Login_bot";
   const domain = opts.loginDomain || "app2629244753-login.tg.dev";
   const verifyUrl = opts.authUrl || ((opts.botOrigin || "https://aaa-ai-bot.aaateam.workers.dev") + "/api/telegram-widget-verify");
+  const next = opts.next || "/store";
   const body = '<div class="form" style="max-width:460px;text-align:center">' +
     '<h2 style="margin-bottom:6px">Sign in to the App Store</h2>' +
     '<p style="color:#a6a6b8;margin-bottom:18px">Connect your Telegram account to publish and manage apps.</p>' +
@@ -526,12 +598,13 @@ export function loginPage(user, opts) {
     '<p id="msg" style="margin-top:12px;color:#ff9b9b"></p></div>' +
     '<script>' +
     'function saveSess(t){try{localStorage.setItem("sess",t);}catch(e){}}' +
+    'var NEXT=' + JSON.stringify(next) + ';' +
     // The widget verify returns a real session token (type tg-store-login).
-    'window.addEventListener("message",function(e){if(e.data&&e.data.type==="tg-store-login"&&e.data.token){saveSess(e.data.token);location.href="/store";}});' +
+    'window.addEventListener("message",function(e){if(e.data&&e.data.type==="tg-store-login"&&e.data.token){saveSess(e.data.token);location.href=NEXT;}});' +
     'document.getElementById("codeBtn").addEventListener("click",async function(){' +
     'var c=document.getElementById("code").value.trim();if(!c){document.getElementById("msg").textContent="Enter a code.";return;}' +
     'var r=await fetch("/api/store/login",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({code:c})});' +
-    'var j=await r.json();if(j.ok){saveSess(j.token);location.href="/store";}else{document.getElementById("msg").textContent=j.error||"Invalid code.";}});' +
+    'var j=await r.json();if(j.ok){saveSess(j.token);location.href=NEXT;}else{document.getElementById("msg").textContent=j.error||"Invalid code.";}});' +
     '</script></div>';
   return storeShell("Sign in · Super AI Store", body, user);
 }

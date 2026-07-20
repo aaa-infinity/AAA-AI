@@ -29,7 +29,9 @@ object TelegramAuth {
         val firstName: String = "",
         val lastName: String = "",
         val photoUrl: String = "",
-        val isPremium: Boolean = false
+        val isPremium: Boolean = false,
+        val languageCode: String = "",
+        val phone: String = ""
     ) {
         val displayName: String
             get() = listOf(firstName, lastName).filter { it.isNotBlank() }.joinToString(" ")
@@ -70,7 +72,9 @@ object TelegramAuth {
                 firstName = j.optString("firstName"),
                 lastName = j.optString("lastName"),
                 photoUrl = j.optString("photoUrl"),
-                isPremium = j.optBoolean("isPremium")
+                isPremium = j.optBoolean("isPremium"),
+                languageCode = j.optString("languageCode"),
+                phone = j.optString("phone")
             )
         }.getOrDefault(Profile(id = chat))
         return Session(chatId = chat, profile = profile, verified = true)
@@ -86,6 +90,8 @@ object TelegramAuth {
                 put("lastName", profile.lastName)
                 put("photoUrl", profile.photoUrl)
                 put("isPremium", profile.isPremium)
+                put("languageCode", profile.languageCode)
+                put("phone", profile.phone)
             }.toString())
             .remove(KEY_PENDING)
             .apply()
@@ -105,6 +111,57 @@ object TelegramAuth {
 
     fun generateCode(): String =
         (1..8).map { "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[(Math.random() * 32).toInt()] }.joinToString("")
+
+    /**
+     * Submit a link code (from the login bot) to the worker and, on success,
+     * persist the verified Telegram session locally. Returns true if linked.
+     */
+    suspend fun submitCode(ctx: Context, code: String, appUid: String = ""): Boolean {
+        val base = (ctx.getString(com.aaa.ai.R.string.bot_server_url) ?: "https://aaa-ai-bot.aaateam.workers.dev").trimEnd('/')
+        return runCatching {
+            val url = "$base/api/verify?code=${java.net.URLEncoder.encode(code, "UTF-8")}"
+            val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 10000
+            conn.readTimeout = 10000
+            val text = conn.inputStream.bufferedReader().use { it.readText() }
+            conn.disconnect()
+            val j = JSONObject(text)
+            if (j.optBoolean("ok")) {
+                val chatId = j.optString("chatId")
+                val prof = j.optJSONObject("profile")
+                val profile = if (prof != null) Profile(
+                    id = prof.optString("id", chatId),
+                    username = prof.optString("username"),
+                    firstName = prof.optString("firstName"),
+                    lastName = prof.optString("lastName"),
+                    photoUrl = prof.optString("photoUrl"),
+                    isPremium = prof.optBoolean("isPremium"),
+                    languageCode = prof.optString("languageCode"),
+                    phone = prof.optString("phone")
+                ) else Profile(id = chatId)
+                save(ctx, chatId, profile)
+                // Link the Telegram id to the (possibly app-only) account uid so
+                // the store can show both the Telegram id and the account uid.
+                if (appUid.isNotBlank()) {
+                    runCatching {
+                        val link = java.net.URL("$base/api/link")
+                        val c2 = link.openConnection() as java.net.HttpURLConnection
+                        c2.requestMethod = "POST"
+                        c2.connectTimeout = 10000
+                        c2.readTimeout = 10000
+                        c2.setRequestProperty("content-type", "application/json")
+                        c2.doOutput = true
+                        c2.outputStream.write(
+                            JSONObject().put("chatId", chatId).put("uid", appUid).toString().toByteArray()
+                        )
+                        c2.inputStream.bufferedReader().use { it.readText() }
+                        c2.disconnect()
+                    }
+                }
+                true
+            } else false
+        }.getOrDefault(false)
+    }
 
     fun botDeepLink(code: String, bot: String = "AAA_Login_bot"): Intent =
         Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/$bot?start=verify_$code"))
@@ -139,7 +196,9 @@ object TelegramAuth {
                         firstName = prof.optString("firstName"),
                         lastName = prof.optString("lastName"),
                         photoUrl = prof.optString("photoUrl"),
-                        isPremium = prof.optBoolean("isPremium")
+                        isPremium = prof.optBoolean("isPremium"),
+                        languageCode = prof.optString("languageCode"),
+                        phone = prof.optString("phone")
                     ) else Profile(id = chatId)
                     return profile
                 }

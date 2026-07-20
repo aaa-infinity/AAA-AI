@@ -122,7 +122,9 @@ fun AaaAiApp(
     LaunchedEffect(Unit) { TelegramAuth.refresh(startCtx) }
 
     LaunchedEffect(user?.uid, tgSession.verified) {
-        val uid = user?.uid ?: "tg_${tgSession.chatId}"
+        // The Telegram user id IS the account uid (same as the store worker),
+        // so chat history, points and wallet are shared across app + store.
+        val uid = if (!user?.uid.isNullOrBlank()) user!!.uid else tgSession.chatId.ifBlank { null }
         viewModel.setUserId(uid)
         if (!uid.isNullOrBlank()) {
             viewModel.checkPremium(uid)

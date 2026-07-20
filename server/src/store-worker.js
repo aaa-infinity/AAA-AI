@@ -63,7 +63,8 @@ async function handleStore(request, env) {
     return new Response(loginPage(user, {
       botUsername: env.LOGIN_BOT_USERNAME || "AAA_Login_bot",
       loginDomain: env.LOGIN_BOT_DOMAIN || "app2629244753-login.tg.dev",
-      authUrl: origin + "/api/store/widget-verify",
+      authUrl: origin + "/api/store/widget-verify?next=" + encodeURIComponent(url.searchParams.get("next") || "/store"),
+      next: url.searchParams.get("next") || "/store",
     }), { headers: { "content-type": "text/html; charset=utf-8" } });
   }
   if (request.method === "GET" && (p === "/download" || p === "/download/")) {
@@ -71,6 +72,17 @@ async function handleStore(request, env) {
     const uid = await getSessionUid(env, token);
     const user = uid ? await dbUpsertUser(env, { uid }) : null;
     return new Response(downloadPage(user), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" } });
+  }
+  // ---- Profile page (full Telegram details) ----
+  if (request.method === "GET" && (p === "/store/me" || p === "/store/me/")) {
+    const token = request.headers.get("x-session") || "";
+    const uid = await getSessionUid(env, token);
+    if (!uid) {
+      const origin = env.PUBLIC_ORIGIN || "https://aaa-store.aaateam.workers.dev";
+      return Response.redirect(origin + "/store/login?next=" + encodeURIComponent("/store/me"), 302);
+    }
+    const user = await dbUpsertUser(env, { uid });
+    return new Response(profilePage(user), { headers: { "content-type": "text/html; charset=utf-8" } });
   }
 
   // ---- Store API ----
@@ -86,11 +98,11 @@ async function handleStore(request, env) {
       if (v.ok) { uid = String(v.chatId); profile = v.profile; }
     }
     if (!uid) return json({ ok: false, error: "login failed" }, 401);
-    await dbUpsertUser(env, { uid, username: profile?.username || "", display_name: profile?.display_name || "", photo_url: profile?.photo_url || "", is_admin: false });
+    await dbUpsertUser(env, { uid, fromTg: true, username: profile?.username || "", display_name: profile?.display_name || "", first_name: profile?.first_name || "", last_name: profile?.last_name || "", photo_url: profile?.photo_url || "", language_code: profile?.language_code || "", is_premium: profile?.is_premium, phone: profile?.phone || "", is_admin: false });
     const token = await createSession(env, uid);
     return json({ ok: true, token: token, user: { uid } });
   }
-  if (request.method === "POST" && p === "/api/store/widget-verify") {
+    if (request.method === "POST" && p === "/api/store/widget-verify") {
     // Telegram Login Widget posts signed fields here. We verify, create a
     // session, then hand a TOKEN (not just the uid) back to the opener/WebView.
     const body = await request.json().catch(() => ({}));
@@ -99,17 +111,19 @@ async function handleStore(request, env) {
       return new Response("⛔ Login failed.", { status: 401, headers: { "content-type": "text/html; charset=utf-8" } });
     }
     const uid = String(body.id);
-    await dbUpsertUser(env, { uid, username: body.username || "", display_name: (body.first_name || "") + " " + (body.last_name || ""), photo_url: body.photo_url || "", is_admin: false });
+    await dbUpsertUser(env, { uid, fromTg: true, username: body.username || "", display_name: (body.first_name || "") + " " + (body.last_name || ""), first_name: body.first_name || "", last_name: body.last_name || "", photo_url: body.photo_url || "", language_code: body.language_code || "", is_premium: !!body.is_premium, phone: body.phone || "", is_admin: false });
     const token = await createSession(env, uid);
     const user = { uid, username: body.username, first_name: body.first_name, last_name: body.last_name, photo_url: body.photo_url };
+    // Return to the page the user was trying to reach (e.g. a download or /store/me).
+    const next = (url.searchParams.get("next") || "/store");
     const html = '<!doctype html><html><head><meta charset="utf-8"></head><body><script>' +
-      'var t=' + JSON.stringify(token) + ';var u=' + JSON.stringify(user) + ';' +
+      'var t=' + JSON.stringify(token) + ';var u=' + JSON.stringify(user) + ';var n=' + JSON.stringify(next) + ';' +
       'try{localStorage.setItem("sess",t);localStorage.setItem("sessUser",JSON.stringify(u));}catch(e){}' +
       'try{if(window.opener)window.opener.postMessage({type:"tg-store-login",token:t,user:u},"*");}catch(e){}' +
       'try{parent.postMessage({type:"tg-store-login",token:t,user:u},"*");}catch(e){}' +
       'try{if(window.TgLoginBridge)window.TgLoginBridge.onResult(JSON.stringify({token:t,user:u}));}catch(e){}' +
       'document.write("✅ Signed in as "+(u.username||u.uid)+". Redirecting…");' +
-      'setTimeout(function(){try{if(window.opener||window.parent!==window){window.close();}else{location.href="/store";}}catch(e){location.href="/store";}},700);' +
+      'setTimeout(function(){try{if(window.opener||window.parent!==window){window.close();}else{location.href=n;}}catch(e){location.href=n;}},700);' +
       '</script></body></html>';
     return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
   }
@@ -272,9 +286,16 @@ async function handleStore(request, env) {
     });
   }
 
-  // ---- APK download (streamed from R2) ----
+  // ---- APK download (streamed from R2) — login required ----
   if (request.method === "GET" && p.startsWith("/store/apks/")) {
     const id = decodeURIComponent(p.slice("/store/apks/".length).replace(/\.apk$/, ""));
+    const token = request.headers.get("x-session") || "";
+    const uid = await getSessionUid(env, token);
+    // Gate downloads behind a Telegram login so only verified users can fetch APKs.
+    if (!uid) {
+      const origin = env.PUBLIC_ORIGIN || "https://aaa-store.aaateam.workers.dev";
+      return Response.redirect(origin + "/store/login?next=" + encodeURIComponent(p), 302);
+    }
     const a = await dbGetApp(env, id);
     if (!a || a.status !== "approved") return new Response("Not available", { status: 403 });
     const key = a.apk_r2_key || ("store/apks/" + id + ".apk");

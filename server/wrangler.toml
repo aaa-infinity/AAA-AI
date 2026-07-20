@@ -31,3 +31,8 @@ crons = ["17 */6 * * *"]
 # tail_consumers = [
 #   { service = "aaa-ai-bot-tail" }
 # ]
+
+# Public Telegram Login bot ID (used to validate the Login Widget signature).
+[vars]
+LOGIN_BOT_ID = "8821017836"
+PUBLIC_ORIGIN = "https://aaa-ai-bot.aaateam.workers.dev"
