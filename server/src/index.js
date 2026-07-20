@@ -737,14 +737,17 @@ async function postToChannelText(env, text) {
 }
 
 /** Post a message to the public AAA FREE AI channel. Returns success.
- *  Prefers the Free AI bot, which is the channel admin. */
+ *  Prefers the Free AI bot, which is the channel admin. Appends a branded
+ *  footer (app link) so every channel post ends with a clear CTA. */
 async function postToChannel(text) {
   const channel = ENV.CHANNEL_ID || DEFAULT_CHANNEL_ID;
   if (!channel) return false;
+  const footer = "\n\n📲 Get Super AI (free): https://aaa-store.aaateam.workers.dev/store";
+  const full = (text || "").includes("aaa-store.aaateam.workers.dev") ? (text || "") : (text || "") + footer;
   const tokens = [ENV.FREE_AI_BOT_TOKEN, ENV.LOGIN_BOT_TOKEN, ENV.ADMIN_BOT_TOKEN];
   for (const token of tokens) {
     if (!token) continue;
-    if (await tgSendSafe(token, channel, text)) return true;
+    if (await tgSendSafe(token, channel, full)) return true;
   }
   return false;
 }
@@ -1988,6 +1991,12 @@ async function handleFreeAi(update) {
   const userId = String(from.id);
   const text = msg.text.trim();
   const cmd = text.split(/\s+/)[0].toLowerCase().split("@")[0];
+  const STORE = "https://aaa-store.aaateam.workers.dev/store";
+  const menu = {
+    reply_markup: { inline_keyboard: [
+      [{ text: "📲 Download Super AI (free)", url: STORE }, { text: "🛍 App Store", url: STORE }],
+    ] },
+  };
   if (cmd === "/start") {
     const arg = text.slice(text.indexOf("/start") + "/start".length).trim();
     if (arg.startsWith("ref_")) {
@@ -1995,40 +2004,47 @@ async function handleFreeAi(update) {
       const credited = await creditReferral(referrerId, from.id);
       if (credited) {
         await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId,
-          "🎉 <b>Welcome to AAA Free AI!</b>\nYou joined via a friend's invite — they just earned bonus points.");
+          "🎉 <b>Welcome to AAA Free AI!</b>\nYou joined via a friend's invite — they just earned bonus points. You can grab the app below.");
       }
     }
-    // AI is app-only now. The Telegram bot is a companion that points users to
-    // the Android app, where all AI features live.
     await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId,
       "👋 <b>Hi! I'm the Super AI companion bot.</b>\n\n" +
-      "🤖 <b>AI chat, images, downloaders & the creative studio now live inside the Super AI app</b> — " +
-      "the Telegram bot no longer answers AI questions.\n\n" +
-      "📲 <b>Get the app (100% free):</b> https://aaa-store.aaateam.workers.dev/store\n" +
-      "🌐 Or browse our <b>App Store</b>: https://aaa-store.aaateam.workers.dev/store\n\n" +
-      "Install the app to start using AI right away.",
-      { reply_markup: { inline_keyboard: [[
-        { text: "📲 Download Super AI", url: "https://aaa-store.aaateam.workers.dev/store" },
-        { text: "🛍 App Store", url: "https://aaa-store.aaateam.workers.dev/store" },
-      ]] } });
+      "🤖 <b>AI chat, images, downloaders & the creative studio live inside the Super AI app</b> — " +
+      "but you can ask me anything right here and I'll help.\n\n" +
+      "📲 <b>Get the app (100% free):</b> " + STORE,
+      menu);
     return;
   }
-  if (cmd === "/help" || cmd === "/about") {
+  if (cmd === "/help" || cmd === "/about" || cmd === "/menu") {
     await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId,
       "🤖 <b>AAA Free AI — companion bot</b>\n\n" +
-      "All AI features (chat, image, video, downloaders, studio) live in the Super AI app.\n" +
-      "📲 Download: https://aaa-store.aaateam.workers.dev/store");
+      "• Just chat with me — I'll answer your questions.\n" +
+      "• Send <code>/img &lt;idea&gt;</code> and I'll generate an image preview.\n" +
+      "• All AI tools (chat, image, video, downloaders, studio) live in the Super AI app.\n\n" +
+      "📲 Download: " + STORE, menu);
     return;
   }
-  // Any non-command message: AI is app-only — redirect to the app.
-  await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId,
-    "🤖 <b>AI is in the app, not the bot.</b>\n\n" +
-    "The free Telegram bot can't answer AI questions — open the Super AI app to chat, " +
-    "generate images, use downloaders and the creative studio.\n\n" +
-    "📲 Download: https://aaa-store.aaateam.workers.dev/store",
-    { reply_markup: { inline_keyboard: [[
-      { text: "📲 Get Super AI (free)", url: "https://aaa-store.aaateam.workers.dev/store" },
-    ]] } });
+  if (cmd === "/img" || cmd === "/image") {
+    const idea = text.slice(text.indexOf(cmd) + cmd.length).trim() || "a futuristic AI city";
+    await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId, "🎨 Generating \"" + idea.slice(0, 80) + "\"…");
+    try {
+      const buf = await generateImage(idea, ENV, { width: 1024, height: 1024 });
+      if (buf && buf.byteLength) {
+        const b64 = Buffer.from(buf).toString("base64");
+        await tgSendPhoto(ENV.FREE_AI_BOT_TOKEN, chatId, b64, "🎨 " + idea.slice(0, 200) + "\n📲 Make more in the app: " + STORE);
+        return;
+      }
+    } catch (e) {}
+    await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId, "⚠️ Image generation is busy — try the app: " + STORE, menu);
+    return;
+  }
+  // Any other text: answer with the AI companion (warm, helpful, app-aware).
+  let answer = await askAi(text, "gemini");
+  // Guaranteed free fallback if the router reported all providers busy.
+  if (!answer || answer.indexOf("All AI providers are busy") >= 0) {
+    answer = await callFreeAi("gemini", text);
+  }
+  await tgSend(ENV.FREE_AI_BOT_TOKEN, chatId, "🤖 " + String(answer).slice(0, 4000));
 }
 
 // Small helper so /start can report link status without awaiting resolveBotUid twice.
@@ -2616,7 +2632,11 @@ async function setupWebhooks(origin) {
   // deployed Worker, never at a request's local/empty origin.
   const base = (ENV && ENV.PUBLIC_ORIGIN) || origin || "";
   const bots = [
-    { token: ENV.FREE_AI_BOT_TOKEN, path: "/telegram/free", commands: [{ command: "start", description: "Get the Super AI app (AI is app-only)" }] },
+    { token: ENV.FREE_AI_BOT_TOKEN, path: "/telegram/free", commands: [
+      { command: "start", description: "Start / welcome" },
+      { command: "help", description: "What I can do" },
+      { command: "img", description: "Generate an image from text" },
+    ] },
     { token: ENV.LOGIN_BOT_TOKEN, path: "/telegram/login", commands: [{ command: "start", description: "Sign in to the Super AI app" }] },
     { token: ENV.ADMIN_BOT_TOKEN, path: "/telegram/admin", commands: [
       { command: "menu", description: "Open the admin control panel (tap tiles)" },
