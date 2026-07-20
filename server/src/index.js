@@ -1400,6 +1400,26 @@ async function kbContext(env, query) {
   } catch (e) { return ""; }
 }
 
+/** Turn a free-text reply into a refined Short brief: a clean prompt + a type
+ *  (ad|promo|tip|general) the renderer can use. Falls back to the raw text. */
+async function aiVideoBrief(text, env) {
+  try {
+    const raw = await adminAi(
+      "You help plan a vertical 9:16 YouTube Short for the 'Super AI' app (an all-in-one free AI assistant: chat, images, downloads, code).\n" +
+      "The user said: \"" + text + "\"\n" +
+      "Return ONLY a tiny JSON object: {\"prompt\":\"a short visual scene description for AI image generation (max 12 words, no quotes)\", \"type\":\"ad|promo|tip|general\"}.\n" +
+      "Pick type: ad=app promotion, promo=discount/code drop, tip=AI how-to, general=anything else.", "");
+    const m = (raw || "").match(/\{[\s\S]*\}/);
+    if (m) {
+      const o = JSON.parse(m[0]);
+      const type = ["ad", "promo", "tip", "general"].indexOf(o.type) >= 0 ? o.type : "general";
+      const prompt = (o.prompt && o.prompt.trim()) || text;
+      return { prompt: prompt.slice(0, 120), type: type };
+    }
+  } catch (e) {}
+  return { prompt: text.slice(0, 120), type: "general" };
+}
+
 /** Post a structured "Info Received" update to the private admin channel
  *  (AAA AI APP ADMIN, id -1004241419377). Admin-only, never public. */
 export async function adminChannelNotify(env, type, fields) {
@@ -2624,8 +2644,8 @@ async function handleAdmin(update) {
         bc: ["bc", "📣 <b>Broadcast</b>\nReply with the message you want to send to ALL app users."],
         ch: ["ch", "📢 <b>Channel post</b>\nReply with the message (or \"ai: &lt;topic&gt;\") to post to the public channel."],
         img: ["img", "🎨 <b>Image</b>\nReply with the image prompt to generate."],
-        vid: ["vid", "📱 <b>Short Video</b>\nReply with your idea and I'll render a vertical 9:16 YouTube Short.\n<i>e.g. \"a friendly AI assistant helping you create content\"</i>"],
-        reel: ["reel", "📱 <b>Short Video</b>\nReply with your idea and I'll render a vertical 9:16 YouTube Short.\n<i>e.g. \"a friendly AI assistant helping you create content\"</i>"],
+        vid: ["vid", "🤖 <b>Short Video</b>\nTell me what you'd like — e.g. an app ad, a promo drop, or an AI tip. What's the product/vibe? I'll turn it into a vertical 9:16 YouTube Short for you. 🎬"],
+        reel: ["reel", "🤖 <b>Short Video</b>\nTell me what you'd like — e.g. an app ad, a promo drop, or an AI tip. What's the product/vibe? I'll turn it into a vertical 9:16 YouTube Short for you. 🎬"],
         schedule: ["schedule", "⏰ <b>Schedule</b>\nReply with: &lt;minutes&gt; &lt;message&gt; (e.g. 30 Drop a new AI tip!)"],
         ai: ["ai", "🤖 <b>Ask AI</b>\nReply with your question — I'll answer using live stats & provider health."],
       };
@@ -2733,9 +2753,20 @@ async function handleAdmin(update) {
         }
         return;
       }
-      const route = { bc: "/broadcast ", ch: "/channel ", img: "/img ", vid: "/video ", reel: "/reel ", schedule: "/schedule " }[awaiting];
+      const route = { bc: "/broadcast ", ch: "/channel ", img: "/img ", schedule: "/schedule " }[awaiting];
       if (route) {
         await handleAdmin({ message: { chat: { id: chatId }, text: route + text, from: msg.from } });
+        return;
+      }
+      // vid / reel: the AI turns the reply into a refined Short brief + type, then renders.
+      if (awaiting === "vid" || awaiting === "reel") {
+        await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🤖 Got it — let me shape that into a Short…");
+        try {
+          const brief = await aiVideoBrief(text, ENV);
+          await doVideo(ENV, chatId, brief.prompt, { vertical: true, type: brief.type });
+        } catch (e) {
+          await doVideo(ENV, chatId, text, { vertical: true, type: "general" });
+        }
         return;
       }
       if (awaiting === "ai") {
