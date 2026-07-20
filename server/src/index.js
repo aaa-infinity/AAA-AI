@@ -810,14 +810,13 @@ async function generateChannelPost(text, opts) {
   } catch (e) {}
   if (!posted) posted = await postToChannel(caption); // text-only fallback
 
-  // 2) Video: try KIE.AI (grok-imagine) → Shotstack (free sandbox) → Pollinations/json2video.
-  //    Generate once, reuse for both the Telegram channel and the YouTube upload.
+  // 2) Video: render a vertical 9:16 Short via Shotstack (free, reliable) and
+  //    reuse it for both the Telegram channel and the YouTube upload.
   let videoPosted = false;
   let vbuf = null;
   try {
-    vbuf = await generateVideoKie(body, ENV);
-    if (!vbuf) vbuf = await generateVideoShotstack(body, ENV, false);
-    if (!vbuf) vbuf = await generatePromoVideo(body, ENV);
+    const vres = await generateVideoShotstack(body, ENV, false, true);
+    vbuf = vres && vres.buf ? vres.buf : (vres || null);
     if (vbuf) {
       const form = new FormData();
       form.append("chat_id", String(ch));
@@ -1540,9 +1539,9 @@ async function generateImage(prompt, env, opts) {
       const ct = r.headers.get("content-type") || "";
       if (ct.indexOf("image") >= 0) return await r.arrayBuffer();
     }
-  } catch (e) {}
-  return null;
-}
+    } catch (e) {}
+    return { buf: null, error: "fetch_failed" };
+  }
 
 /** Generate a short promo video via KIE.AI (grok-imagine/text-to-video).
  *  Returns an ArrayBuffer, or null on failure. */
@@ -1583,13 +1582,65 @@ async function generateVideoKie(prompt, env) {
 }
 
 /** Generate a promo video via Shotstack (sandbox stage = free, watermarked;
- *  production = paid, no watermark). Returns an ArrayBuffer, or null on failure.
- *  Builds a real video: 2 AI-generated images (Pollinations) fetched in-worker,
- *  stored to R2, and served via the public /api/asset route as Ken-Burns image
- *  clips, plus a "Super AI" title overlay at the end. */
-async function generateVideoShotstack(prompt, env, useProd, vertical) {
+  *  production = paid, no watermark). Returns an ArrayBuffer, or null on failure.
+  *  Builds a real video: 2 AI-generated images (Pollinations) fetched in-worker,
+  *  stored to R2, and served via the public /api/asset route as Ken-Burns image
+  *  clips, plus a "Super AI" title overlay at the end. */
+
+  /** Text-to-speech for AI voiceovers on Shorts. Uses Groq's Orpheus speech API
+   *  (free tier, replaces the decommissioned playai-tts). Requires the Orpheus
+   *  terms to be accepted once at console.groq.com. Returns {buf, error}. */
+  async function ttsMp3(text, env) {
+    const groqKey = (env && (await providerKey(env, "groq", "GROQ_KEY"))) || "";
+    if (!groqKey) return { buf: null, error: "no_key" };
+    try {
+      const r = await fetch("https://api.groq.com/openai/v1/audio/speech", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + groqKey },
+          body: JSON.stringify({
+            model: "canopylabs/orpheus-v1-english",
+            voice: "autumn",
+            input: text.slice(0, 400),
+            response_format: "wav",
+          }),
+      });
+      if (!r.ok) { const b = await r.text().catch(function () { return ""; }); return { buf: null, error: "groq_http_" + r.status + ": " + b.slice(0, 200) }; }
+      const ct = r.headers.get("content-type") || "";
+      if (ct.indexOf("audio") >= 0) return { buf: await r.arrayBuffer(), error: null };
+      const err = await r.text().catch(function () { return ""; });
+      if (err.indexOf("terms") >= 0) return { buf: null, error: "terms" };
+      return { buf: null, error: err.slice(0, 120) };
+    } catch (e) { return { buf: null, error: "throw: " + String((e && e.message) || e).slice(0, 120) }; }
+    return { buf: null, error: "unknown" };
+  }
+
+  /** Returns a royalty-free background-music MP3 URL served from R2. The track is
+   *  fetched once from a stable CDN and cached in R2 so renders are fast/offline.
+   *  Falls back to null (silent video) if anything fails. */
+  async function getBgMusicUrl(env, origin) {
+    const key = "public/bgmusic.mp3";
+    try {
+      if (env.aaa_assets) {
+        const existing = await env.aaa_assets.head(key);
+        // Re-fetch if missing or corrupt (cached error pages are tiny).
+        if (existing && Number(existing.size || 0) > 5000) return origin + "/api/asset/" + key;
+        if (existing) { try { await env.aaa_assets.delete(key); } catch (e) {} }
+      }
+      const r = await fetch("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-9.mp3");
+      const ct = r.headers.get("content-type") || "";
+      if (r.ok && ct.indexOf("audio") >= 0) {
+        const buf = await r.arrayBuffer();
+        if (env.aaa_assets) await env.aaa_assets.put(key, buf, { httpMetadata: { contentType: "audio/mpeg" } });
+        return origin + "/api/asset/" + key;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+async function generateVideoShotstack(prompt, env, useProd, vertical, type) {
+  let voiceErr = null;
   const key = await providerKey(env, "shotstack", "SHOTSTACK_KEY");
-  if (!key) return null;
+  if (!key) return { buf: null, error: "no_shotstack_key" };
   const base = useProd ? "https://api.shotstack.io/edit/render" : "https://api.shotstack.io/edit/stage/render";
   const safe = prompt.replace(/[<>&"]/g, "").slice(0, 80);
   const origin = (env.PUBLIC_ORIGIN || "https://aaa-ai-bot.aaateam.workers.dev").replace(/\/$/, "");
@@ -1603,36 +1654,50 @@ async function generateVideoShotstack(prompt, env, useProd, vertical) {
   const styles = ["neon purple and pink", "cyberpunk teal and magenta", "holographic violet and cyan", "electric blue and gold", "synthwave orange and purple"];
   const moods = ["cinematic dramatic lighting", "soft dreamy glow", "high contrast moody", "bright energetic", "futuristic volumetric light"];
   const style = rnd(styles), mood = rnd(moods);
-  const effectsAll = ["zoomIn", "slideLeft", "kenBurns", "slideUp", "slideDown", "zoomOut"];
-  const effects = effectsAll.sort(() => Math.random() - 0.5).slice(0, 3);
+  const effectsAll = ["zoomIn", "zoomInSlow", "zoomOut", "slideLeft", "slideUp", "slideDown", "slideRight"];
+  const effects = effectsAll.sort(() => Math.random() - 0.5);
   // Varied, human-sounding title overlays so no two videos feel "robotic".
   const titles = [
     "Super AI", "Ari AI", "Your AI Assistant", "Powered by Super AI", "Meet Ari AI",
     "Create with Ari", "AI that gets you", "Your daily AI", "Made by Super AI", "Hello from Ari",
   ];
   const titleText = rnd(titles);
-  // A per-run creative twist so the rendered clip differs every time.
   const twists = ["", " in a bustling city", " close up", " abstract", " minimal", " cinematic", " dreamy", " futuristic"];
   const twist = rnd(twists);
-  // Generate AI images from the prompt (free, Pollinations) in PARALLEL with a
-  // hard per-request timeout, store each to R2, and serve via the public
-  // /api/asset route (Pollinations' own URL 302-redirects and breaks Shotstack's
-  // fetcher). Bounded so the whole job fits the Worker's time budget.
-  const imgPrompts = vertical
-    ? [
-        "Cinematic vertical " + safe + twist + ", " + style + ", futuristic AI, 9:16, " + mood,
-        safe + twist + " app UI, glass holographic neon, 9:16, " + mood,
-      ]
-    : [
-        "Cinematic " + safe + ", " + style + ", futuristic AI city, glowing, 16:9, " + mood,
-        safe + " smart assistant app, modern glass UI, holographic, neon, 16:9, " + mood,
-        "Abstract " + safe + ", flowing neon energy, " + style + " gradient, 16:9, 4k, bokeh",
-      ];
+
+  // Build a short spoken SCRIPT + scene captions based on the video TYPE, so each
+  // kind of Short (app ad / promo code / tip) is genuinely different content.
+  type = (type || "general").toLowerCase();
+  let script, sceneCaptions, imgThemes;
+  if (type === "ad" || type === "app") {
+    script = "Meet Super AI, your all-in-one AI assistant. Chat, create images, and download anything in seconds. Get the app free today and unlock your creativity.";
+    sceneCaptions = ["Your AI assistant", "Chat · Images · Downloads", "All in one app", "Free to start"];
+    imgThemes = [safe + " smartphone app UI", "person using AI chat assistant", "AI generated art on phone", "happy user creating content"];
+  } else if (type === "promo" || type === "promocode") {
+    script = "Limited drop! Use our promo code to unlock Premium free. First users only. Open Super AI, redeem your code, and enjoy Pro features today.";
+    sceneCaptions = ["Limited Promo", "Unlock Premium FREE", "First users only", "Redeem in app"];
+    imgThemes = [safe + " gift box glowing", "premium badge neon", "countdown timer style", "celebration confetti ai"];
+  } else if (type === "tip") {
+    script = "AI tip of the day: " + (safe || "let AI handle the busywork") + ". Try it now in Super AI and save hours every week.";
+    sceneCaptions = ["Tip of the day", safe.slice(0, 24) || "Work smarter", "Try it in Super AI", "Save hours weekly"];
+    imgThemes = [safe + " workspace", "person relaxed productivity", "ai robot helping", "futuristic desk setup"];
+  } else {
+    script = (safe || "Super AI creates amazing things") + ". Powered by Ari AI. Get the app and start creating for free.";
+    sceneCaptions = [titleText, safe.slice(0, 24) || "Create with AI", "Powered by Super AI", "Get the app free"];
+    imgThemes = [safe + " futuristic", safe + " app UI neon", safe + " abstract energy", safe + " cinematic scene"];
+  }
+
+  // Generate 4 AI images (one per scene) in PARALLEL, each with its own seed so
+  // they look different. Store to R2, serve via /api/asset (Sandbox can't fetch
+  // Pollinations' 302-redirect URLs). Bounded per-request timeout.
+  const baseUrl = "https://image.pollinations.ai/prompt/";
   const fetchImg = async (p, i) => {
     const ac = new AbortController();
     const to = setTimeout(() => ac.abort(), 15000);
     try {
-      const u = "https://image.pollinations.ai/prompt/" + encodeURIComponent(p) + "?width=" + iw + "&height=" + ih + "&nologo=true&model=flux&enhance=true&seed=" + seed;
+      const s = seed + i * 7919;
+      const u = baseUrl + encodeURIComponent("Cinematic vertical " + p + twist + ", " + style + ", 9:16, " + mood) +
+        "?width=" + iw + "&height=" + ih + "&nologo=true&model=flux&enhance=true&seed=" + s;
       const r = await fetch(u, { signal: ac.signal });
       if (!r.ok) return null;
       const ct = r.headers.get("content-type") || "";
@@ -1643,29 +1708,58 @@ async function generateVideoShotstack(prompt, env, useProd, vertical) {
       return origin + "/api/asset/" + k;
     } catch (e) { return null; } finally { clearTimeout(to); }
   };
-    const results = await Promise.all(imgPrompts.map((p, i) => fetchImg(p, i)));
-    const imageUrls = results.filter(Boolean);
-    // Remember the R2 temp keys so we can delete them after the render.
-    const tempKeys = results.filter(Boolean).map((u) => u.split("/api/asset/")[1]).filter(Boolean);
+  const results = await Promise.all(imgThemes.map((p, i) => fetchImg(p, i)));
+  const imageUrls = results.filter(Boolean);
+  const tempKeys = results.filter(Boolean).map((u) => u.split("/api/asset/")[1]).filter(Boolean);
 
+  // Build the timeline: 4 scenes × ~3s each = ~12-15s Short, each with its own
+  // image, Ken-Burns effect, scene caption, logo watermark and (at end) CTA.
+  const sceneLen = 3;
   const clips = [];
   let t = 0;
-  if (imageUrls.length) {
-    for (let i = 0; i < imageUrls.length; i++) {
-      clips.push({ asset: { type: "image", src: imageUrls[i] }, start: t, length: 1.5, effect: effects[i % effects.length], transition: { in: "fade" } });
-      t += 1.5;
+  const sceneCount = Math.max(imageUrls.length, sceneCaptions.length, 1);
+  for (let i = 0; i < sceneCount; i++) {
+    const img = imageUrls[i] || imageUrls[0];
+    if (img) {
+      clips.push({ asset: { type: "image", src: img }, start: t, length: sceneLen, effect: effects[i % effects.length], transition: { in: "fade" } });
+    } else {
+      clips.push({ asset: { type: "title", text: titleText, style: "minimal" }, start: t, length: sceneLen });
     }
-  } else {
-    clips.push({ asset: { type: "title", text: "Super AI", style: "minimal" }, start: 0, length: 3 });
-    t = 3;
+    const cap = sceneCaptions[i] || "";
+    if (cap) clips.push({ asset: { type: "title", text: cap, style: "subtitle" }, start: t, length: sceneLen, position: "bottom" });
+    if (env.aaa_assets) clips.push({ asset: { type: "image", src: origin + "/api/asset/public/aaa-store-logo.png" }, start: t, length: sceneLen, position: "topRight", scale: 0.16, opacity: 0.85 });
+    t += sceneLen;
   }
-  clips.push({ asset: { type: "title", text: titleText, style: "minimal" }, start: t, length: 2 });
+  // Branded end-card CTA + subscribe prompt to boost Shorts retention.
+  clips.push({ asset: { type: "title", text: "Get Super AI 👉", style: "minimal" }, start: t, length: 1.5, position: "center" });
+  t += 1.5;
+  clips.push({ asset: { type: "title", text: "aaa-store.aaateam.workers.dev\nFollow for more AI ✨", style: "subtitle" }, start: t, length: 1.5, position: "bottom" });
+  t += 1.5;
+
+  // Audio: AI voiceover (the script) on top + royalty-free background music, both
+  // hosted in R2 and referenced by URL (Shotstack sandbox can't fetch external audio).
+  const audioTracks = [];
+  const ts = Date.now();
+  const voiceRes = await ttsMp3(script, env);
+  if (env && env.aaa_assets) { try { await env.aaa_assets.put("public/tts_last.txt", "err=" + (voiceRes && voiceRes.error || "none") + " hasBuf=" + !!(voiceRes && voiceRes.buf)); } catch (e) {} }
+  if (voiceRes && voiceRes.buf && env.aaa_assets) {
+    const vk = "temp/voice_" + ts + ".wav";
+    await env.aaa_assets.put(vk, voiceRes.buf, { httpMetadata: { contentType: "audio/wav" } });
+    tempKeys.push(vk);
+    audioTracks.push({ clips: [{ asset: { type: "audio", src: origin + "/api/asset/" + vk, volume: 1 }, start: 0, length: t }] });
+  }
+  voiceErr = voiceRes.error; // surfaced by caller
+  const musicUrl = await getBgMusicUrl(env, origin);
+  if (musicUrl) {
+    audioTracks.push({ clips: [{ asset: { type: "audio", src: musicUrl, volume: 0.22 }, start: 0, length: t }] });
+  }
+
   const payload = {
     timeline: {
       background: "#0a0014",
-      tracks: [{ clips: clips }],
+      tracks: [{ clips: clips }].concat(audioTracks),
     },
-    output: { format: "mp4", resolution: vertical ? "mobile" : "hd" },
+    output: { format: "mp4", resolution: "hd", size: { width: iw, height: ih } },
   };
   try {
     const sub = await fetch(base, {
@@ -1674,9 +1768,9 @@ async function generateVideoShotstack(prompt, env, useProd, vertical) {
       body: JSON.stringify(payload),
     }).then((r) => r.json());
     const id = sub && sub.response && sub.response.id;
-    if (!id) return null;
-    for (let i = 0; i < 20; i++) {
-      await new Promise((r) => setTimeout(r, 4000));
+    if (!id) return { buf: null, error: "submit_failed: " + JSON.stringify(sub).slice(0, 800) };
+    for (let i = 0; i < 25; i++) {
+      await new Promise((r) => setTimeout(r, 3000));
       const info = await fetch(base + "/" + id, { headers: { "x-api-key": key } }).then((r) => r.json());
       const st = info && info.response && info.response.status;
       if (st === "done" || st === "failed") {
@@ -1688,17 +1782,19 @@ async function generateVideoShotstack(prompt, env, useProd, vertical) {
           const url = info.response.url;
           if (url) {
             const vid = await fetch(url);
-            if (vid.ok) return { buf: await vid.arrayBuffer(), url: url };
+            if (vid.ok) return { buf: await vid.arrayBuffer(), url: url, voiceErr: voiceErr };
+            return { buf: null, error: "fetch_failed url=" + url };
           }
+          return { buf: null, error: "no_url status=" + st };
         }
-        return null;
+        return { buf: null, error: "render_" + st + ": " + JSON.stringify(info.response).slice(0, 200) };
       }
     }
     if (env.aaa_assets && tempKeys.length) {
       await Promise.all(tempKeys.map((k) => env.aaa_assets.delete(k).catch(function () {})));
     }
-    return null;
-  } catch (e) { return null; }
+    return { buf: null, error: "timeout_polling" };
+  } catch (e) { return { buf: null, error: "throw: " + String((e && e.message) || e).slice(0, 200) }; }
 }
 
 /** DuckDuckGo HTML scrape -> top result snippets. */
@@ -2797,6 +2893,12 @@ async function handleAdmin(update) {
     return;
   }
 
+  if (cmd === "/vidstatus") {
+    const last = ENV.AAA_KV ? await ENV.AAA_KV.get("vid_last") : "";
+    const full = ENV.AAA_KV ? await ENV.AAA_KV.get("vid_fullerr") : "";
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🎬 Last render:\n" + htmlEscape(last || "(none)") + (full ? "\n\n❌ " + htmlEscape(full) : ""));
+    return;
+  }
   if (cmd === "/ytupload") {
     const refresh = ENV.AAA_KV ? await ENV.AAA_KV.get("yt_owner_refresh") : "";
     if (!refresh) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ YouTube not connected. Connect via /ytconnect (owner) first."); return; }
@@ -3426,29 +3528,37 @@ async function handleAdmin(update) {
     return;
   }
 
-  /** Shared video pipeline: render (KIE→Shotstack→Pollinations), cache to R2,
-   *  upload to YouTube (new video), post to admin chat + channel. Streams the
-   *  source URL to avoid in-memory base64 (large clips previously crashed the worker). */
+  /** Shared video pipeline: renders a vertical 9:16 YouTube Short via Shotstack
+   *  (reliable + free), uploads it to YouTube as a Short, posts to admin chat +
+   *  channel, then deletes the cached R2 copy. Streams the source URL to avoid
+   *  loading large clips into worker memory. */
   async function doVideo(ENV, chatId, prompt, opts) {
     opts = opts || {};
-    const vertical = !!opts.vertical;
+    const vtype = opts.type || "general";
     if (!prompt) {
-      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "Usage: /video &lt;text&gt; — renders a vertical 9:16 YouTube Short via the Ari AI engine.");
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "Usage: /video &lt;text&gt; — renders a vertical 9:16 YouTube Short.\nTypes: add <code>type:ad</code>, <code>type:promo</code> or <code>type:tip</code> to the message (e.g. <code>/video type:ad Our new app</code>).");
       return;
     }
-    if (!ENV.KIE_API_KEY && !ENV.SHOTSTACK_KEY && !ENV.JSON2VIDEO_KEY) {
-      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ No video provider set. Add one with /setkey kie <key>, /setkey shotstack <key>, or /setkey json2video <key>");
+    if (!ENV.SHOTSTACK_KEY) {
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ No video provider set. Add Shotstack with /setkey shotstack <key> (free sandbox key works).");
       return;
     }
-    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "📱 Rendering vertical Short…" + " (this can take ~60s)");
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "📱 Rendering vertical Short (" + vtype + ")…" + " (this can take ~60s)");
     await tgAction(ENV.ADMIN_BOT_TOKEN, chatId, "upload_video");
-    let srcName = "kie";
-    let res = null, buf = null, videoUrl = null;
-    try { res = await generateVideoKie(prompt, ENV); } catch (e) { srcName = "kie|ERR " + String((e && e.message) || e).slice(0, 80); }
-    if (res && res.buf) { buf = res.buf; videoUrl = res.url; } else if (res) { buf = res; }
-    if (!buf) { srcName = "shotstack"; try { res = await generateVideoShotstack(prompt, ENV, false, vertical); } catch (e) { srcName = "shotstack|ERR " + String((e && e.message) || e).slice(0, 80); } if (res && res.buf) { buf = res.buf; videoUrl = res.url; } else if (res) { buf = res; } }
-    // Validate the Shotstack URL actually serves a real video; if it's a broken
-    // render (HTML error page), drop the URL and fall back to a Pollinations clip.
+    let srcName = "shotstack";
+    let res = null, buf = null, videoUrl = null, voiceErr = null;
+    let vidErr = null;
+    const ckpt = async (s) => { try { await ENV.AAA_KV.put("vid_last", s); } catch (e) {} try { if (ENV.aaa_assets) await ENV.aaa_assets.put("public/vidstatus.txt", s); } catch (e) {} };
+    await ckpt("start type=" + vtype);
+    try { res = await generateVideoShotstack(prompt, ENV, false, true, vtype); } catch (e) { srcName = "shotstack|ERR " + String((e && e.message) || e).slice(0, 80); await ckpt("THREW: " + srcName); }
+    if (res) { await ckpt("returned hasBuf=" + !!res.buf + " voiceErr=" + (res.voiceErr || "")); }
+    if (res && res.buf) { buf = res.buf; videoUrl = res.url; voiceErr = res.voiceErr; } else if (res) { buf = res; videoUrl = res.url; voiceErr = res.voiceErr; vidErr = res.error; }
+    if (voiceErr === "terms") await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🔇 No voice: accept Groq Orpheus terms at console.groq.com → Settings → Model Terms (orpheus-v1-english).");
+    else if (voiceErr === "no_key") await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🔇 No voice: set Groq key with /setkey groq <key>.");
+    if (vidErr) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Render issue: " + htmlEscape(vidErr.slice(0, 1500))); try { await ENV.AAA_KV.put("vid_fullerr", vidErr); } catch (e) {} }
+    if (!res) await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Render threw: " + htmlEscape(srcName.slice(0, 200)));
+    // Validate the render actually serves a real video; if it's a broken render,
+    // treat it as failed so we can surface a clear error.
     if (videoUrl) {
       try {
         const pr = await fetch(videoUrl);
@@ -3457,10 +3567,9 @@ async function handleAdmin(update) {
         if (ct.indexOf("video") < 0 || len < 5000) videoUrl = null;
       } catch (e) { videoUrl = null; }
     }
-    if (!buf && !videoUrl) { srcName = "promo"; try { res = await generatePromoVideo(prompt, ENV); } catch (e) { srcName = "promo|ERR " + String((e && e.message) || e).slice(0, 80); } if (res && res.buf) { buf = res.buf; videoUrl = res.url; } else if (res) { buf = res; } }
-    if (!buf && !videoUrl) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Video generation failed (no API credits or API error)."); return; }
+    if (!buf && !videoUrl) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ Video generation failed (Shotstack API error or no credits)."); return; }
     const caption = "🎬 <b>" + htmlEscape(prompt.slice(0, 200)) + "</b>\n<i>Rendered by the Ari AI engine</i>";
-    const cacheKey = vertical ? "temp/last_reel.mp4" : "temp/last_promo.mp4";
+    const cacheKey = "temp/last_reel.mp4";
     // If we only have a URL, download it to a buffer so caching/YouTube/Telegram
     // all use a verified video (and we avoid caching an HTML error page).
     let safeUrl = videoUrl;
@@ -4198,14 +4307,13 @@ async function weeklyPromo(env) {
     "Output only the post text.", "");
   const post = (msg && msg.length > 5 ? htmlEscape(msg) : ("🎁 Limited drop! First 30 users get 7 days PREMIUM free.")) +
     "\n\n🔑 Code: <b>" + promo.code + "</b>\n👥 First " + promo.maxRedemptions + " users only!";
-  // Generate a vertical promo SHORT via the Shotstack image pipeline (reliable,
-  // free) and post it to Telegram + YouTube as a Short. Falls back to json2video.
+  // Generate a vertical 9:16 promo SHORT via the Shotstack image pipeline
+  // (reliable, free) and post it to Telegram + YouTube as a Short.
   let videoBuf = null;
   try {
     const res = await generateVideoShotstack(promo.code + " 7 days premium free — Ari AI", env, false, true);
     videoBuf = res && res.buf ? res.buf : (res || null);
   } catch (e) {}
-  if (!videoBuf) { try { videoBuf = await generatePromoVideo(post, env); } catch (e) {} }
   let toChannel = false;
   let toYtVideo = false;
   if (videoBuf) {
@@ -4364,9 +4472,9 @@ async function rateLimited(env, key, max, windowSec) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     try {
-      return await handle(request, env);
+      return await handle(request, env, ctx);
     } catch (e) {
       return new Response("ERR: " + (e && e.message ? e.message : String(e)), {
         status: 500, headers: { "content-type": "text/plain" },
@@ -4375,7 +4483,7 @@ export default {
   },
 };
 
-async function handle(request, env) {
+async function handle(request, env, ctx) {
     ENV = env || {};
     const url = new URL(request.url);
 
@@ -4498,6 +4606,18 @@ async function handle(request, env) {
         state: state,
       });
       return Response.redirect(auth, 302);
+    }
+    // TEMP: debug video render failure (writes result to KV, returns fast).
+    if (request.method === "GET" && url.pathname === "/api/vidtest") {
+      (async () => {
+        let out = {};
+        try {
+          const r = await generateVideoShotstack("test ad video", env, false, true, "ad");
+          out = { result: r ? { hasBuf: !!r.buf, url: r && r.url ? r.url.slice(0, 60) : null, voiceErr: r && r.voiceErr, error: r && r.error } : "undefined" };
+        } catch (e) { out = { threw: String((e && e.message) || e).slice(0, 300), stack: String((e && e.stack) || "").slice(0, 400) }; }
+        try { await env.AAA_KV.put("vidtest_out", JSON.stringify(out)); } catch (e) {}
+      })();
+      return new Response("started", { headers: { "content-type": "text/plain" } });
     }
     // YouTube OAuth callback: exchange code, store owner refresh token or verify user sub.
     if (request.method === "GET" && url.pathname === "/api/yt/callback") {
@@ -4679,6 +4799,11 @@ async function handle(request, env) {
       await ENV.AAA_KV.put("crashlog:index", JSON.stringify(idx)).catch(function () {});
       return json({ ok: true });
     }
+    if (request.method === "GET" && url.pathname === "/api/vidstatus") {
+      const last = ENV.AAA_KV ? await ENV.AAA_KV.get("vid_last") : "";
+      const full = ENV.AAA_KV ? await ENV.AAA_KV.get("vid_fullerr") : "";
+      return json({ last: last || "(none)", fullErr: full || "(none)" }, 200);
+    }
     if (request.method === "GET" && url.pathname === "/api/crashlog") {
       const denied = requireSecret(request, ENV);
       if (denied) return denied;
@@ -4707,8 +4832,9 @@ async function handle(request, env) {
     }
     if (request.method === "POST" && url.pathname === "/telegram/admin") {
       const update = await request.json().catch(function () { return {}; });
-      // Process fully before responding so the worker stays alive for the work
-      // (Cloudflare freezes the isolate once we return). Telegram allows ~60s.
+      // Await fully within the request (Telegram allows ~60s, and the first
+      // render succeeded this way). Long renders post their status to KV via the
+      // "vid_last" checkpoint and /vidstatus for inspection.
       try { await handleAdmin(update); } catch (e) { console.error("admin webhook error: " + (e && e.stack || e)); }
       return new Response("ok");
     }
