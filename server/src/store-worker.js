@@ -6,9 +6,9 @@ import {
   dbUpdateAppStatus, dbSupersede, dbIncDownloads, dbListApps,
   pushPending, removePending, getPendingList, createSession, getSessionUid,
   requireUser, aiGenerateListing, aiModerate, storePage, storeDetailPage,
-  uploadPage, loginPage, escapeHtml, json,
+  uploadPage, loginPage, escapeHtml, json, dbAddRating, dbGetRatings, dbVersionHistory,
 } from "./storeShared.js";
-import { askAi, adminAi, verifyTelegramWidget } from "./index.js";
+import { askAi, adminAi, verifyTelegramWidget, adminChannelNotify } from "./index.js";
 
 let ENV = {};
 
@@ -47,7 +47,6 @@ async function handleStore(request, env) {
     if (!a || (a.status !== "approved" && a.owner_uid !== (uid || ""))) {
       return new Response(storeDetailPage(null, user), { headers: { "content-type": "text/html; charset=utf-8" } });
     }
-    return new Response(storeDetailPage(a, user), { headers: { "content-type": "text/html; charset=utf-8" } });
   }
   if (request.method === "GET" && (p === "/store/upload")) {
     const { uid, error } = await requireUser(request, env);
@@ -192,7 +191,7 @@ async function handleStore(request, env) {
     }
     await pushPending(env, id);
     await env.AAA_KV?.put(rlKey, String(used + 1), { expirationTtl: 3600 });
-    // Notify admin.
+    // Notify admin (chat + private admin channel).
     if (env.ADMIN_BOT_TOKEN && env.ADMIN_CHAT_ID) {
       const note = moderation.flag === "review" ? " ⚠ AI flagged for review: " + (moderation.notes || "") : "";
       await fetch("https://api.telegram.org/bot" + env.ADMIN_BOT_TOKEN + "/sendMessage", {
@@ -200,6 +199,13 @@ async function handleStore(request, env) {
         body: JSON.stringify({ chat_id: env.ADMIN_CHAT_ID, text: "📦 New app submitted: " + name + note + "\nReview: /review" }),
       }).catch(() => {});
     }
+    adminChannelNotify(env, "New App Submission", {
+      "Channel": "AAA AI APP ADMIN",
+      "Name": name,
+      "Category": app.category || "Other",
+      "ID": id,
+      "AI Moderation": moderation.flag || "ok",
+    }).catch(function () {});
     return json({ ok: true, id: id, status: "pending", moderation: moderation });
   }
   if (request.method === "POST" && p.match(/\/api\/store\/apps\/[^/]+\/approve$/)) {
@@ -228,21 +234,46 @@ async function handleStore(request, env) {
     return json({ ok: true, status: "rejected" });
   }
 
-  // ---- APK download (streamed from R2) ----
-  if (request.method === "GET" && p.startsWith("/store/apks/")) {
-    const key = "store/apks/" + p.slice("/store/apks/".length);
+  // ---- Rate an app (logged-in store user) ----
+  if (request.method === "POST" && p.match(/\/api\/store\/apps\/[^/]+\/rate$/)) {
+    const token = request.headers.get("x-session") || "";
+    const uid = await getSessionUid(env, token);
+    if (!uid) return json({ ok: false, error: "sign in required" }, 401);
+    const id = p.split("/")[4];
+    const body = await request.json().catch(() => ({}));
+    const stars = Math.max(1, Math.min(5, parseInt(body.stars, 10) || 5));
+    const ok = await dbAddRating(env, id, uid, stars, body.review || "");
+    return json({ ok: ok });
+  }
+
+  // ---- Static asset serving from R2 (logos, icons, etc.) ----
+  if (request.method === "GET" && p.startsWith("/api/asset/")) {
+    const key = decodeURIComponent(p.slice("/api/asset/".length));
     const obj = env.aaa_assets ? await env.aaa_assets.get(key) : null;
     if (!obj) return new Response("Not found", { status: 404 });
-    // Only serve if the app is approved (look up by key).
-    const id = key.replace(/^store\/apks\//, "").replace(/\.apk$/, "");
+    const body = await obj.arrayBuffer();
+    return new Response(body, {
+      headers: {
+        "content-type": (obj.httpMetadata && obj.httpMetadata.contentType) || "application/octet-stream",
+        "cache-control": "public, max-age=86400",
+      },
+    });
+  }
+
+  // ---- APK download (streamed from R2) ----
+  if (request.method === "GET" && p.startsWith("/store/apks/")) {
+    const id = decodeURIComponent(p.slice("/store/apks/".length).replace(/\.apk$/, ""));
     const a = await dbGetApp(env, id);
     if (!a || a.status !== "approved") return new Response("Not available", { status: 403 });
+    const key = a.apk_r2_key || ("store/apks/" + id + ".apk");
+    const obj = env.aaa_assets ? await env.aaa_assets.get(key) : null;
+    if (!obj) return new Response("Not found", { status: 404 });
     await dbIncDownloads(env, id);
     return new Response(obj.body, {
       headers: {
-        "content-type": "application/vnd.android.package-archive",
+        "content-type": "application/vnd.android-package-archive",
         "content-disposition": 'attachment; filename="' + (a.name || "app") + '.apk"',
-        "cache-control": "public, max-age=300",
+        "cache-control": "public, max-age=60",
       },
     });
   }

@@ -92,6 +92,77 @@ export async function dbIncDownloads(env, id) {
   await env.AAA_DB.prepare("UPDATE store_apps SET downloads = downloads + 1 WHERE id = ?").bind(id).run();
 }
 
+// Ratings + reviews.
+export async function dbRatingSummary(env, appId) {
+  if (!env.AAA_DB) return { avg: 0, count: 0, reviews: [] };
+  const s = await env.AAA_DB.prepare(
+    "SELECT COALESCE(AVG(stars),0) avg, COUNT(*) c FROM store_ratings WHERE app_id = ?"
+  ).bind(appId).first();
+  const revs = await env.AAA_DB.prepare(
+    "SELECT uid, stars, review, created_at FROM store_ratings WHERE app_id = ? ORDER BY created_at DESC LIMIT 20"
+  ).bind(appId).all();
+  return {
+    avg: Math.round((s?.avg || 0) * 10) / 10,
+    count: s?.c || 0,
+    reviews: (revs?.results || []),
+  };
+}
+
+// Version history.
+export async function dbAddVersion(env, appId, version, changelog, apkR2Key, size) {
+  if (!env.AAA_DB) return;
+  await env.AAA_DB.prepare(
+    "INSERT INTO store_versions (app_id, version, changelog, apk_r2_key, size, created_at) VALUES (?,?,?,?,?,?)"
+  ).bind(appId, version, changelog || null, apkR2Key || null, size || null, Date.now()).run();
+}
+
+export async function dbVersionHistory(env, appId) {
+  if (!env.AAA_DB) return [];
+  const r = await env.AAA_DB.prepare(
+    "SELECT version, changelog, size, created_at FROM store_versions WHERE app_id = ? ORDER BY created_at DESC LIMIT 15"
+  ).bind(appId).all();
+  return (r?.results || []);
+}
+
+export async function dbGetRatings(env, appId) {
+  if (!env.AAA_DB) return { avg: 0, count: 0, reviews: [] };
+  try {
+    const agg = await env.AAA_DB.prepare(
+      "SELECT COALESCE(AVG(stars),0) avg, COUNT(*) c FROM store_ratings WHERE app_id = ?"
+    ).bind(appId).first();
+    const rows = await env.AAA_DB.prepare(
+      "SELECT uid, stars, review, created_at FROM store_ratings WHERE app_id = ? ORDER BY created_at DESC LIMIT 20"
+    ).bind(appId).all();
+    return { avg: agg?.avg || 0, count: agg?.c || 0, reviews: (rows && rows.results) || [] };
+  } catch (e) { return { avg: 0, count: 0, reviews: [] }; }
+}
+
+export async function dbAddRating(env, appId, uid, stars, review) {
+  if (!env.AAA_DB) return false;
+  try {
+    await dbEnsureStoreSchema(env);
+    await env.AAA_DB.prepare(
+      "INSERT INTO store_ratings (app_id, uid, stars, review, created_at) VALUES (?,?,?,?,?)"
+    ).bind(appId, uid, stars || 5, (review || "").slice(0, 1000), Date.now()).run();
+    return true;
+  } catch (e) { return false; }
+}
+
+// Idempotently create store ratings + version-history tables (safe to call often).
+let _storeSchemaReady = false;
+export async function dbEnsureStoreSchema(env) {
+  if (_storeSchemaReady) return;
+  if (!env.AAA_DB) return;
+  const stmts = [
+    "create table if not exists store_ratings (id integer primary key autoincrement, app_id text not null, uid text not null, stars integer not null default 5, review text, created_at integer not null default (unixepoch()*1000))",
+    "create index if not exists idx_ratings_app on store_ratings(app_id)",
+    "create table if not exists store_versions (id integer primary key autoincrement, app_id text not null, version text not null, changelog text, apk_r2_key text, size integer, created_at integer not null default (unixepoch()*1000))",
+    "create index if not exists idx_versions_app on store_versions(app_id)",
+  ];
+  for (const s of stmts) { try { await env.AAA_DB.prepare(s).run(); } catch (e) {} }
+  _storeSchemaReady = true;
+}
+
 export async function dbListApps(env, opts) {
   if (!env.AAA_DB) return { apps: [], total: 0 };
   const status = (opts.status || "approved");
@@ -219,8 +290,8 @@ function json(obj, status) { return new Response(JSON.stringify(obj), { status: 
 // ---------------------------------------------------------------------------
 function storeShell(title, body, user) {
   const nav = '<nav class="nav"><div class="wrap"><div class="brand">' +
-    '<a href="/download" style="color:inherit;text-decoration:none;display:flex;align-items:center;gap:10px">' +
-    '<img src="/api/asset/public/aaa-store-logo.png" width="30" height="30" alt="">AAA App Store</a></div>' +
+    '<a href="/store" style="display:flex;align-items:center">' +
+    '<img class="logo" src="/api/asset/public/aaa-store-logo.png" height="34" alt="AAA App Store"></a></div>' +
     '<div class="nav-actions"><a class="nav-fb" href="https://www.facebook.com/share/1BzWH5P2bF/" target="_blank" rel="noopener">f</a>' +
     '<a class="dl ghost" href="/download">Get app</a>' +
     (user ? '<a class="dl" href="/store/upload">Upload app</a>' : '<a class="dl" href="/store/login">Sign in</a>') +
@@ -234,8 +305,9 @@ function storeShell(title, body, user) {
     '.wrap{max-width:1100px;margin:0 auto;padding:0 20px}a{color:inherit;text-decoration:none}' +
     '.nav{position:sticky;top:0;z-index:20;backdrop-filter:blur(12px);background:rgba(8,8,15,.7);border-bottom:1px solid rgba(255,255,255,.06)}' +
     '.nav .wrap{display:flex;align-items:center;justify-content:space-between;padding:12px 20px}' +
-    '.brand{display:flex;align-items:center;gap:10px;font-weight:800}' +
-    '.brand img{width:32px;height:32px;border-radius:9px;box-shadow:0 2px 10px rgba(124,77,255,.4)}' +
+    '.brand{display:flex;align-items:center;font-weight:800}' +
+    '.brand img{height:34px;width:auto;border-radius:9px;filter:drop-shadow(0 2px 10px rgba(124,77,255,.4))}' +
+    '.brand .logo{height:34px;width:auto}' +
     '.nav a.dl{background:linear-gradient(135deg,#7c4dff,#ff4d9d);padding:9px 18px;border-radius:50px;font-weight:700;font-size:.9rem}' +
     '.nav a.dl.ghost{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12)}' +
     '.nav-actions{display:flex;align-items:center;gap:10px}' +
@@ -266,14 +338,21 @@ function storeShell(title, body, user) {
     '.form input,.form textarea,.form select{width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#fff;padding:11px 14px;border-radius:12px;outline:none;font-family:inherit}' +
     '.toggle{display:flex;gap:10px;margin:10px 0}.toggle button{flex:1;padding:10px;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#cfcfdd}' +
     '.toggle button.active{background:linear-gradient(135deg,#7c4dff,#ff4d9d);color:#fff;border-color:transparent}' +
+    '/* featured flagship app on storefront */' +
+    '.featured{display:flex;align-items:center;gap:14px;background:rgba(255,255,255,.04);border:1px solid rgba(124,77,255,.3);' +
+    'border-radius:18px;padding:14px 18px;text-decoration:none;max-width:560px;margin:22px auto 0}' +
+    '.featured img{border-radius:14px;box-shadow:0 4px 14px rgba(124,77,255,.35)}' +
+    '.featured .get{margin-left:auto;background:linear-gradient(135deg,#7c4dff,#ff4d9d);color:#fff;font-weight:800;' +
+    'padding:9px 16px;border-radius:50px;font-size:.85rem;white-space:nowrap}' +
+    '.featured:hover{border-color:rgba(124,77,255,.6);transform:translateY(-2px);transition:.15s}' +
     '</style></head><body>' + nav + '<div class="wrap">' + body + '</div>' +
     '<footer>&copy; ' + new Date().getFullYear() + ' AAA App Store &middot; A free Android app store.</footer></body></html>';
 }
 
 function appCard(a) {
-  const icon = a.icon_url || "/api/asset/public/Logo.png";
+  const icon = a.icon_url || "/api/asset/public/aaa-store-logo.png";
   return '<a class="card" href="/store/app/' + a.id + '">' +
-    '<img class="ic" src="' + icon + '" alt="" onerror="this.src=\'/api/asset/public/Logo.png\'">' +
+    '<img class="ic" src="' + icon + '" alt="" onerror="this.src=\'/api/asset/public/aaa-store-logo.png\'">' +
     '<div class="cat">' + (a.category || "Other") + '</div>' +
     '<h3>' + escapeHtml(a.name) + '</h3>' +
     '<p>' + escapeHtml(a.short_desc || "") + '</p>' +
@@ -285,30 +364,73 @@ export function storePage(list, categories, user) {
     .concat(categories.map((c) =>
       '<span class="chip ' + (list.category === c ? 'active' : '') + '" onclick="location=\'/store?category=' + encodeURIComponent(c) + '\'">' + c + '</span>'
     )).join('');
+  const featured = '<a class="featured" href="/store/app/app_superai">' +
+    '<img src="/api/asset/public/aaa-store-logo.png" width="56" height="56" alt="Super AI">' +
+    '<div style="text-align:left"><div style="font-weight:800;font-size:1.05rem">Super AI — our flagship app</div>' +
+    '<div style="color:#a6a6b8;font-size:.85rem">Free all-in-one AI: chat, images, downloaders &amp; creative studio</div></div>' +
+    '<span class="get">Get it ↓</span></a>';
   const body = '<header class="hero"><h1>AAA <span class="grad">App Store</span></h1>' +
-    '<p class="sub">A free, open Android app store. Anyone can publish — browse, download, and share apps.</p>' +
+    '<p class="sub">The free, open Android app store. Get Super AI and community-made apps — no Play Store required.</p>' +
     '<a class="btn" href="' + (user ? '/store/upload' : '/store/login') + '">⬆ Publish your app</a></header>' +
+    featured +
     '<div class="bar"><input class="search" placeholder="Search apps…" onkeydown="if(event.key===\'Enter\')location=\'/store?q=\'+encodeURIComponent(this.value)"></div>' +
     '<div class="bar">' + chips + '</div>' +
     (list.apps.length ? '<div class="grid">' + list.apps.map(appCard).join('') + '</div>'
-      : '<div class="empty"><div class="big">📦</div><p>No apps yet — be the first to publish!</p>' +
+      : '<div class="empty"><div class="big">📦</div><p>No community apps yet — be the first to publish!</p>' +
         '<a class="btn" style="margin-top:16px" href="' + (user ? '/store/upload' : '/store/login') + '">Publish an app</a></div>');
   return storeShell("AAA App Store", body, user);
 }
 
-export function storeDetailPage(a, user) {
+export function storeDetailPage(a, user, ratings, versions) {
   if (!a) return storeShell("Not found", "<p style='text-align:center;margin-top:60px'>App not found.</p>", user);
-  const icon = a.icon_url || "/api/asset/public/Logo.png";
+  const icon = a.icon_url || "/api/asset/public/aaa-store-logo.png";
   const dl = a.apk_r2_key
-    ? '<a class="btn" href="/store/apks/' + a.id + '.apk">⬇ Download APK</a>'
+    ? '<a class="btn" href="/store/apks/' + encodeURIComponent(a.apk_r2_key.replace(/^store\/apks\//, "").replace(/\.apk$/, "")) + '.apk">⬇ Download APK</a>'
     : (a.apk_url ? '<a class="btn" href="' + escapeHtml(a.apk_url) + '" target="_blank" rel="noopener">⬇ Get it here</a>' : '<span class="btn" style="opacity:.6">Download unavailable</span>');
+  const r = ratings || { avg: 0, count: 0, reviews: [] };
+  const stars = "★★★★★".slice(0, Math.round(r.avg)) + "☆☆☆☆☆".slice(0, 5 - Math.round(r.avg));
+  const ratingBlock = r.count
+    ? '<div style="margin:10px 0 4px;font-size:1.1rem;color:#ffd54a">' + stars +
+      ' <span style="color:#a6a6b8;font-size:.85rem">' + r.avg + ' · ' + r.count + ' rating' + (r.count === 1 ? '' : 's') + '</span></div>'
+    : '<div style="margin:10px 0 4px;color:#8a8aa0;font-size:.85rem">No ratings yet — be the first!</div>';
+  // Review list (latest 5).
+  const reviews = (r.reviews || []).slice(0, 5).map(function (rv) {
+    const s = "★★★★★".slice(0, rv.stars || 5);
+    return '<div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:12px 14px;margin:10px 0">' +
+      '<div style="color:#ffd54a;font-size:.95rem">' + s + '</div>' +
+      (rv.review ? '<div style="color:#d6d6e2;font-size:.9rem;margin-top:4px">' + escapeHtml(rv.review) + '</div>' : '') +
+      '<div style="color:#6f6f82;font-size:.72rem;margin-top:4px">' + escapeHtml(rv.uid || "anon") + '</div></div>';
+  }).join('');
+  const rateForm = user
+    ? '<form id="rf" style="margin:18px 0;display:flex;gap:10px;flex-wrap:wrap;align-items:center">' +
+      '<select name="stars" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#fff;padding:10px;border-radius:10px">' +
+      '<option value="5">★★★★★ 5</option><option value="4">★★★★ 4</option><option value="3">★★★ 3</option><option value="2">★★ 2</option><option value="1">★ 1</option></select>' +
+      '<input name="review" placeholder="Write a review…" maxlength="500" style="flex:1;min-width:200px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#fff;padding:10px;border-radius:10px">' +
+      '<button type="submit" class="btn" style="padding:10px 18px">Rate</button></form>' +
+      '<script>document.getElementById("rf").onsubmit=async function(e){e.preventDefault();var f=this;var d=JSON.stringify({stars:f.stars.value,review:f.review.value});' +
+      'var r=await fetch("/api/store/apps/' + a.id + '/rate",{method:"POST",headers:{"content-type":"application/json","x-session":localStorage.getItem("sess")||""},body:d});' +
+      'var j=await r.json();if(j.ok){location.reload();}else{alert(j.error||"failed");}};</script>'
+    : '<div style="margin:16px 0"><a class="btn" href="/store/login">Sign in to rate</a></div>';
+  const verBlock = (versions && versions.length)
+    ? '<div style="margin:24px 0"><h3 style="margin-bottom:10px">📜 Version history</h3>' +
+      versions.map(function (v) {
+        return '<div style="padding:10px 0;border-top:1px solid rgba(255,255,255,.06)"><b>v' + escapeHtml(v.version) + '</b>' +
+          (v.size ? ' · ' + Math.round(v.size / 1048576) + ' MB' : '') +
+          (v.changelog ? '<div style="color:#a6a6b8;font-size:.85rem;margin-top:4px">' + escapeHtml(v.changelog) + '</div>' : '') + '</div>';
+      }).join('') + '</div>'
+    : '';
   const body = '<div class="detail" style="padding-top:40px">' +
-    '<img class="ic" src="' + icon + '" alt="" onerror="this.src=\'/api/asset/public/Logo.png\'">' +
+    '<img class="ic" src="' + icon + '" alt="" onerror="this.src=\'/api/asset/public/aaa-store-logo.png\'">' +
     '<h1 style="margin:16px 0 4px">' + escapeHtml(a.name) + '</h1>' +
     '<div class="cat">' + (a.category || "Other") + (a.version ? ' · v' + a.version : '') + (a.min_android ? ' · Android ' + a.min_android + '+' : '') + '</div>' +
+    ratingBlock +
     '<p style="color:#cfcfdd;margin:18px 0;line-height:1.7">' + escapeHtml(a.long_desc || a.short_desc || "") + '</p>' +
     '<div style="margin:20px 0">' + dl + '</div>' +
-    '<div class="meta">⬇ ' + (a.downloads || 0) + ' downloads</div></div>';
+    '<div class="meta" style="margin-bottom:10px">⬇ ' + (a.downloads || 0) + ' downloads</div>' +
+    rateForm +
+    (reviews ? '<div style="margin-top:8px">' + reviews + '</div>' : '') +
+    verBlock +
+    '</div>';
   return storeShell(a.name + " · AAA App Store", body, user);
 }
 

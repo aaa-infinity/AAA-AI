@@ -1593,7 +1593,10 @@ async function generateVideoShotstack(prompt, env, useProd, vertical) {
   const base = useProd ? "https://api.shotstack.io/edit/render" : "https://api.shotstack.io/edit/stage/render";
   const safe = prompt.replace(/[<>&"]/g, "").slice(0, 80);
   const origin = (env.PUBLIC_ORIGIN || "https://aaa-ai-bot.aaateam.workers.dev").replace(/\/$/, "");
-  const iw = vertical ? 720 : 1280, ih = vertical ? 1280 : 720;
+  // Shorts-first: always render a vertical 9:16 clip so every video is a
+  // YouTube Short / Reel. (The `vertical` arg is kept for API compatibility.)
+  vertical = true;
+  const iw = 720, ih = 1280;
   // Randomize so every render looks different (not the same clip each time).
   const rnd = (arr) => arr[Math.floor(Math.random() * arr.length)];
   const seed = Math.floor(Math.random() * 1e9);
@@ -1602,16 +1605,23 @@ async function generateVideoShotstack(prompt, env, useProd, vertical) {
   const style = rnd(styles), mood = rnd(moods);
   const effectsAll = ["zoomIn", "slideLeft", "kenBurns", "slideUp", "slideDown", "zoomOut"];
   const effects = effectsAll.sort(() => Math.random() - 0.5).slice(0, 3);
-  const titles = ["Super AI", "Ari AI", "Your AI Assistant", "Powered by Super AI", "Meet Ari AI"];
+  // Varied, human-sounding title overlays so no two videos feel "robotic".
+  const titles = [
+    "Super AI", "Ari AI", "Your AI Assistant", "Powered by Super AI", "Meet Ari AI",
+    "Create with Ari", "AI that gets you", "Your daily AI", "Made by Super AI", "Hello from Ari",
+  ];
   const titleText = rnd(titles);
+  // A per-run creative twist so the rendered clip differs every time.
+  const twists = ["", " in a bustling city", " close up", " abstract", " minimal", " cinematic", " dreamy", " futuristic"];
+  const twist = rnd(twists);
   // Generate AI images from the prompt (free, Pollinations) in PARALLEL with a
   // hard per-request timeout, store each to R2, and serve via the public
   // /api/asset route (Pollinations' own URL 302-redirects and breaks Shotstack's
   // fetcher). Bounded so the whole job fits the Worker's time budget.
   const imgPrompts = vertical
     ? [
-        "Cinematic vertical " + safe + ", " + style + ", futuristic AI, 9:16, " + mood,
-        safe + " app UI, glass holographic neon, 9:16, " + mood,
+        "Cinematic vertical " + safe + twist + ", " + style + ", futuristic AI, 9:16, " + mood,
+        safe + twist + " app UI, glass holographic neon, 9:16, " + mood,
       ]
     : [
         "Cinematic " + safe + ", " + style + ", futuristic AI city, glowing, 16:9, " + mood,
@@ -1633,8 +1643,10 @@ async function generateVideoShotstack(prompt, env, useProd, vertical) {
       return origin + "/api/asset/" + k;
     } catch (e) { return null; } finally { clearTimeout(to); }
   };
-  const results = await Promise.all(imgPrompts.map((p, i) => fetchImg(p, i)));
-  const imageUrls = results.filter(Boolean);
+    const results = await Promise.all(imgPrompts.map((p, i) => fetchImg(p, i)));
+    const imageUrls = results.filter(Boolean);
+    // Remember the R2 temp keys so we can delete them after the render.
+    const tempKeys = results.filter(Boolean).map((u) => u.split("/api/asset/")[1]).filter(Boolean);
 
   const clips = [];
   let t = 0;
@@ -1661,7 +1673,6 @@ async function generateVideoShotstack(prompt, env, useProd, vertical) {
       headers: { "x-api-key": key, "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     }).then((r) => r.json());
-    console.log("[shotstack] submit:", JSON.stringify(sub).slice(0, 120));
     const id = sub && sub.response && sub.response.id;
     if (!id) return null;
     for (let i = 0; i < 20; i++) {
@@ -1669,6 +1680,10 @@ async function generateVideoShotstack(prompt, env, useProd, vertical) {
       const info = await fetch(base + "/" + id, { headers: { "x-api-key": key } }).then((r) => r.json());
       const st = info && info.response && info.response.status;
       if (st === "done" || st === "failed") {
+        // Always delete the temporary R2 images so they don't pile up.
+        if (env.aaa_assets && tempKeys.length) {
+          await Promise.all(tempKeys.map((k) => env.aaa_assets.delete(k).catch(function () {})));
+        }
         if (st === "done") {
           const url = info.response.url;
           if (url) {
@@ -1678,6 +1693,9 @@ async function generateVideoShotstack(prompt, env, useProd, vertical) {
         }
         return null;
       }
+    }
+    if (env.aaa_assets && tempKeys.length) {
+      await Promise.all(tempKeys.map((k) => env.aaa_assets.delete(k).catch(function () {})));
     }
     return null;
   } catch (e) { return null; }
@@ -1884,7 +1902,7 @@ async function sendAdminMenu(chatId) {
       [b("📊 Stats", "stats"), b("🩺 Status", "status"), b("📋 Review", "review")],
       [b("📣 Broadcast", "bc"), b("📢 Channel", "ch"), b("🔄 Sync", "sync")],
       [b("🐞 Crashes", "crashlog"), b("🧹 Cleanup", "cleanup"), b("🤖 Ask AI", "ai")],
-      [b("🎨 Image", "img"), b("🎬 Video", "vid"), b("📱 Reel", "reel")],
+      [b("🎨 Image", "img"), b("📱 Short Video", "vid")],
       [b("⬆️ Upload YT", "ytupload"), b("🔑 API Key", "sk"), b("🔍 Key Status", "keys")],
       [b("📊 Report", "report"), b("🤖 Auto Post", "autopost"), b("🎟 Promo", "promo")],
       [b("🧠 Teach AI", "teach"), b("📚 Learnings", "learnings"), b("🏠 Menu", "menu")],
@@ -1902,7 +1920,14 @@ async function sendAdminMenu(chatId) {
 const PROVIDERS = ["kie", "shotstack", "json2video", "hf", "gemini", "groq", "tensor", "youtube", "pollinations", "kiehmac"];
 
 async function adminPrompt(chatId, kind, question) {
-  try { await ENV.AAA_KV.put("await_" + chatId, kind, { expirationTtl: 300 }); } catch (e) {}
+  let saved = false;
+  try { await ENV.AAA_KV.put("await_" + chatId, kind, { expirationTtl: 600 }); saved = true; } catch (e) {}
+  if (!saved) {
+    // KV write failed — tell the admin how to proceed via slash command so the
+    // action is never a dead end.
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, question + "\n\n<i>(Tip: you can also type the command directly, e.g. /video your idea)</i>");
+    return;
+  }
   await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, question);
 }
 
@@ -1966,8 +1991,8 @@ const COMMAND_REFS = [
   { cmd: "/ytstats", cat: "API Keys", desc: "YouTube channel stats", nl: "youtube stats" },
   { cmd: "/ytupdate", cat: "API Keys", desc: "Update YouTube channel description", nl: "update youtube" },
   { cmd: "/img", cat: "Content & Media", desc: "/img <prompt> — generate image (KIE→Pollinations)", nl: "generate image, make a picture, draw" },
-  { cmd: "/video", cat: "Content & Media", desc: "/video <prompt> — generate video (KIE→Shotstack→Pollinations)", nl: "generate video, make a clip, render promo" },
-  { cmd: "/reel", cat: "Content & Media", desc: "/reel <prompt> — vertical 9:16 short (Reels/Shorts)", nl: "make a reel, vertical short, tiktok" },
+  { cmd: "/video", cat: "Content & Media", desc: "/video <prompt> — vertical 9:16 YouTube Short", nl: "generate video, make a short, render promo" },
+  { cmd: "/reel", cat: "Content & Media", desc: "/reel <prompt> — vertical 9:16 YouTube Short", nl: "make a reel, vertical short, tiktok" },
   { cmd: "/teach", cat: "AI Brain", desc: "/teach <topic> | <how> — teach the AI (self-improves)", nl: "teach the ai, remember this, learn this" },
   { cmd: "/learnings", cat: "AI Brain", desc: "/learnings — view AI memory + provider stats", nl: "learnings, what have you learned, memory" },
   { cmd: "/schedule", cat: "Users & Growth", desc: "/schedule <minutes> <msg> — queue a channel post", nl: "schedule post, queue message, later" },
@@ -2072,7 +2097,7 @@ async function classifyIntent(text) {
     "- 'img' / 'video' = generate media, and the message contains a real subject/prompt. Put the prompt in 'arg'.\n" +
     "- 'credits' = give a user points, and the message contains a uid + amount. Extract 'uid amount' into arg. 'grant' = grant premium: extract 'uid days'.\n" +
     "- 'promo' = generate a promo code. 'autopost' = AI auto channel post.\n" +
-    "- 'chat' = DEFAULT for anything ambiguous, conversational, vague, acknowledging (e.g. 'you do it', 'ok', 'thanks', 'do it'), a question, or not clearly one of the above. When in doubt, choose 'chat'.\n" +
+    "- 'chat' = DEFAULT for anything ambiguous, conversational, vague, acknowledging (e.g. 'you do it', 'ok', 'thanks', 'do it'), greetings ('hi', 'hello', 'hey'), a question, or not clearly one of the above. When in doubt, choose 'chat'. NEVER map a greeting or small talk to 'stats'.\n" +
     "Respond with ONLY valid JSON: {\"action\":\"<one>\",\"arg\":\"<text or empty>\"}. No markdown, no commentary.\n\n" +
     "USER: " + text + "\nJSON:";
   const raw = await askAi(prompt, "gemini");
@@ -2511,8 +2536,8 @@ async function handleAdmin(update) {
         bc: ["bc", "📣 <b>Broadcast</b>\nReply with the message you want to send to ALL app users."],
         ch: ["ch", "📢 <b>Channel post</b>\nReply with the message (or \"ai: &lt;topic&gt;\") to post to the public channel."],
         img: ["img", "🎨 <b>Image</b>\nReply with the image prompt to generate."],
-        vid: ["vid", "🎬 <b>Video</b>\nReply with the video prompt to render."],
-        reel: ["reel", "📱 <b>Reel</b>\nReply with the prompt for a vertical 9:16 short."],
+        vid: ["vid", "📱 <b>Short Video</b>\nReply with your idea and I'll render a vertical 9:16 YouTube Short.\n<i>e.g. \"a friendly AI assistant helping you create content\"</i>"],
+        reel: ["reel", "📱 <b>Short Video</b>\nReply with your idea and I'll render a vertical 9:16 YouTube Short.\n<i>e.g. \"a friendly AI assistant helping you create content\"</i>"],
         schedule: ["schedule", "⏰ <b>Schedule</b>\nReply with: &lt;minutes&gt; &lt;message&gt; (e.g. 30 Drop a new AI tip!)"],
         ai: ["ai", "🤖 <b>Ask AI</b>\nReply with your question — I'll answer using live stats & provider health."],
       };
@@ -2521,7 +2546,7 @@ async function handleAdmin(update) {
         return;
       }
       // Map a tap action to its command and run it.
-      const direct = { stats: "/stats", status: "/status", review: "/review", sync: "/sync", crashlog: "/crashlog", cleanup: "/cleanup", ai: "/ai", yt: "/yt", keys: "/keys", report: "/report", autopost: "/autopost", promo: "/promo", ytupload: "/ytupload", reel: "/reel", teach: "/teach", learnings: "/learnings", schedule: "/schedule", dashboard: "/dashboard" };
+      const direct = { stats: "/stats", status: "/status", review: "/review", sync: "/sync", crashlog: "/crashlog", cleanup: "/cleanup", ai: "/ai", yt: "/yt", keys: "/keys", report: "/report", autopost: "/autopost", promo: "/promo", ytupload: "/ytupload", teach: "/teach", learnings: "/learnings", dashboard: "/dashboard" };
       if (direct[data]) {
         await handleAdmin({ message: { chat: { id: chatId }, text: direct[data], from: cq.from } });
       }
@@ -2775,16 +2800,23 @@ async function handleAdmin(update) {
   if (cmd === "/ytupload") {
     const refresh = ENV.AAA_KV ? await ENV.AAA_KV.get("yt_owner_refresh") : "";
     if (!refresh) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ YouTube not connected. Connect via /ytconnect (owner) first."); return; }
-    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "📺 Fetching the last generated promo video…");
-    let buf = null;
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "📺 Fetching the last generated video…");
+    // Pick whichever cached video is newer (reel or promo).
+    let buf = null, which = "";
     try {
-      const obj = ENV.aaa_assets ? await ENV.aaa_assets.get("temp/last_promo.mp4") : null;
-      if (obj && obj.body) buf = new Uint8Array(await obj.arrayBuffer());
+      const r1 = ENV.aaa_assets ? await ENV.aaa_assets.get("temp/last_reel.mp4") : null;
+      const r2 = ENV.aaa_assets ? await ENV.aaa_assets.get("temp/last_promo.mp4") : null;
+      const a = r1 ? await r1.arrayBuffer() : null;
+      const b = r2 ? await r2.arrayBuffer() : null;
+      const aOk = a && a.byteLength > 1000, bOk = b && b.byteLength > 1000;
+      if (aOk && (!bOk || (a.byteLength >= b.byteLength))) { buf = new Uint8Array(a); which = "reel"; }
+      else if (bOk) { buf = new Uint8Array(b); which = "promo"; }
     } catch (e) {}
-    if (!buf || buf.byteLength < 1000) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ No cached video. Generate one first with 🎬 Video."); return; }
-    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "📺 Uploading to YouTube…");
-    const yt = await uploadVideoToYouTube(buf, "Super AI — Promo", "Made with Super AI (Ari AI engine). Get the app: https://aaa-store.aaateam.workers.dev/store", ENV);
+    if (!buf || buf.byteLength < 1000) { await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ No cached video. Generate one first with 🎬 Video or 📱 Reel."); return; }
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "📺 Uploading " + which + " to YouTube…");
+    const yt = await uploadVideoToYouTube(buf, "Super AI — " + which, "Made with Super AI (Ari AI engine). Get the app: https://aaa-store.aaateam.workers.dev/store", ENV);
     await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, yt ? "✅ Uploaded to YouTube as a new video." : "⚠️ Upload failed. The owner token needs the youtube.upload scope — reconnect via /ytconnect.");
+    if (yt) { try { await adminChannelNotify(ENV, "Video Uploaded to YouTube", { Type: which }); } catch (_) {} }
     return;
   }
 
@@ -3401,16 +3433,14 @@ async function handleAdmin(update) {
     opts = opts || {};
     const vertical = !!opts.vertical;
     if (!prompt) {
-      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, vertical
-        ? "Usage: /reel &lt;text&gt; — renders a vertical 9:16 short (Reels/Shorts)."
-        : "Usage: /video &lt;text&gt; — renders a promo video via the Ari AI engine");
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "Usage: /video &lt;text&gt; — renders a vertical 9:16 YouTube Short via the Ari AI engine.");
       return;
     }
     if (!ENV.KIE_API_KEY && !ENV.SHOTSTACK_KEY && !ENV.JSON2VIDEO_KEY) {
       await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ No video provider set. Add one with /setkey kie <key>, /setkey shotstack <key>, or /setkey json2video <key>");
       return;
     }
-    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, (vertical ? "📱 Rendering vertical reel…" : "🎬 Rendering video…") + " (this can take ~60s)");
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "📱 Rendering vertical Short…" + " (this can take ~60s)");
     await tgAction(ENV.ADMIN_BOT_TOKEN, chatId, "upload_video");
     let srcName = "kie";
     let res = null, buf = null, videoUrl = null;
@@ -3440,26 +3470,31 @@ async function handleAdmin(update) {
     try {
       if (ENV.aaa_assets && buf) {
         await ENV.aaa_assets.put(cacheKey, buf, { httpMetadata: { contentType: "video/mp4" } });
-        await ENV.AAA_KV.put("dbg_r2put", "ok " + buf.byteLength);
       } else if (ENV.aaa_assets && safeUrl) {
         const r = await fetch(safeUrl);
         await ENV.aaa_assets.put(cacheKey, r.body, { httpMetadata: { contentType: "video/mp4" } });
-        await ENV.AAA_KV.put("dbg_r2put", "ok streamed");
-      } else { await ENV.AAA_KV.put("dbg_r2put", "no binding"); }
-    } catch (e) { try { await ENV.AAA_KV.put("dbg_r2put", "ERR " + String((e && e.message) || e).slice(0,120)); } catch (_) {} }
+      }
+    } catch (e) {}
     const ytRefresh = ENV.AAA_KV ? await ENV.AAA_KV.get("yt_owner_refresh") : "";
+    // Unique, human-sounding title per run so uploads never look like the same
+    // robot video. (Random hook + prompt + timestamp.)
+    const hooks = ["Watch this", "New drop", "AI made this", "Quick demo", "Fresh from Ari", "You'll love this", "AI magic", "Made in seconds"];
+    const hook = hooks[Math.floor(Math.random() * hooks.length)];
+    const uniqTitle = "#Shorts — " + hook + ": " + prompt.slice(0, 42).charAt(0).toUpperCase() + prompt.slice(1, 43);
     if (ytRefresh) {
       await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "📺 Uploading to YouTube…");
       try {
-        const yt = await uploadVideoToYouTube(safeUrl || buf, "Super AI — " + prompt.slice(0, 60), "Made with Super AI (Ari AI engine). Get the app: https://aaa-store.aaateam.workers.dev/store", ENV);
-        await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, yt ? "✅ Uploaded to YouTube." : "⚠️ YouTube upload failed (reconnect with /ytconnect).");
-        if (yt) { try { await adminChannelNotify(ENV, "Video Uploaded to YouTube", { Prompt: prompt.slice(0, 80), Type: vertical ? "Reel" : "Video" }); } catch (_) {} }
+        const yt = await uploadVideoToYouTube(safeUrl || buf, uniqTitle, "Made with Super AI (Ari AI engine). Get the app: https://aaa-store.aaateam.workers.dev/store\n\n#Shorts #AI #SuperAI #AriAI", ENV);
+        await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, yt ? "✅ Uploaded to YouTube as a Short." : "⚠️ YouTube upload failed (reconnect with /ytconnect).");
+        if (yt) { try { await adminChannelNotify(ENV, "Short Uploaded to YouTube", { Prompt: prompt.slice(0, 80), Type: "Short" }); } catch (_) {} }
       } catch (e) {
         await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "⚠️ YouTube upload error: " + htmlEscape(String((e && e.message) || e).slice(0, 150)));
       }
     } else {
       await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "ℹ️ YouTube not connected. Tap 🔑 / connect via /ytconnect to auto-upload videos.");
     }
+    // Clean up the cached Cloudflare R2 copy so old videos don't pile up.
+    try { if (ENV.aaa_assets) await ENV.aaa_assets.delete(cacheKey); } catch (e) {}
     try {
       const payload = safeUrl
         ? { chat_id: chatId, video: safeUrl, caption: caption, parse_mode: "HTML" }
@@ -3559,13 +3594,9 @@ async function handleAdmin(update) {
     return;
   }
 
-  // ---- Admin AI: auto-generate promo video (→ admin chat + channel + YouTube) ----
-  if (cmd === "/video" || cmd === "/vid") {
-    await doVideo(ENV, chatId, args.slice(1).join(" ").trim(), { vertical: false });
-    return;
-  }
-  // ---- Vertical short (9:16) for Reels / Shorts / TikTok ----
-  if (cmd === "/reel") {
+  // ---- Admin AI: auto-generate a vertical YouTube Short (→ admin chat + channel + YouTube) ----
+  // All videos are Shorts now: /video, /vid and /reel all render a 9:16 short.
+  if (cmd === "/video" || cmd === "/vid" || cmd === "/reel") {
     await doVideo(ENV, chatId, args.slice(1).join(" ").trim(), { vertical: true });
     return;
   }
@@ -3656,6 +3687,14 @@ async function handleAdmin(update) {
         (i.crashlyticsLink ? "🔗 " + htmlEscape(i.crashlyticsLink) + "\n" : "");
       await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, txt);
     }
+    return;
+  }
+
+  // Casual greetings / small talk → just open the menu instead of running a
+  // command or dumping stats. Keeps the console friendly.
+  if (/^(hi|hii+|hey+|hello|yo|hola|hii|start|menu|sup|good\s*(morning|evening|afternoon)|salam|assalamualaikum)\b[!. ]*$/i.test(text)) {
+    await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "👋 <b>Hey! I'm your Super AI admin console.</b>\nTap a tile below, or just tell me what you want (e.g. \"make a short about our new AI feature\").");
+    await sendAdminMenu(chatId);
     return;
   }
 
@@ -4159,9 +4198,14 @@ async function weeklyPromo(env) {
     "Output only the post text.", "");
   const post = (msg && msg.length > 5 ? htmlEscape(msg) : ("🎁 Limited drop! First 30 users get 7 days PREMIUM free.")) +
     "\n\n🔑 Code: <b>" + promo.code + "</b>\n👥 First " + promo.maxRedemptions + " users only!";
-  // Generate a promo VIDEO via json2video and post it to Telegram + YouTube.
+  // Generate a vertical promo SHORT via the Shotstack image pipeline (reliable,
+  // free) and post it to Telegram + YouTube as a Short. Falls back to json2video.
   let videoBuf = null;
-  try { videoBuf = await generatePromoVideo(post, env); } catch (e) {}
+  try {
+    const res = await generateVideoShotstack(promo.code + " 7 days premium free — Ari AI", env, false, true);
+    videoBuf = res && res.buf ? res.buf : (res || null);
+  } catch (e) {}
+  if (!videoBuf) { try { videoBuf = await generatePromoVideo(post, env); } catch (e) {} }
   let toChannel = false;
   let toYtVideo = false;
   if (videoBuf) {
@@ -4176,10 +4220,10 @@ async function weeklyPromo(env) {
       toChannel = !!j.ok;
     } catch (e) {}
     if (!toChannel) toChannel = await postToChannel(post);
-    // Upload the video directly to YouTube.
+    // Upload the Short directly to YouTube.
     toYtVideo = await uploadVideoToYouTube(videoBuf,
-      "Ari AI Promo " + promo.code + " — 7 Days Premium Free",
-      "Limited promo! Use code " + promo.code + " in the Ari AI app to unlock 7 days of Premium. First 30 users only.\n\nGet the app: https://aaa-store.aaateam.workers.dev/store",
+      "#Shorts — Ari AI Promo " + promo.code + " 7 Days Premium Free",
+      "Limited promo! Use code " + promo.code + " in the Ari AI app to unlock 7 days of Premium. First 30 users only.\n\nGet the app: https://aaa-store.aaateam.workers.dev/store\n\n#Shorts #AI #SuperAI #AriAI",
       env);
   } else {
     // Fallback: post a generated image to the channel.
@@ -4254,7 +4298,7 @@ async function autoPostAi(env) {
   //    then upload it to YouTube as a NEW video if the owner connected YouTube.
   let toYtVideo = false;
   try {
-    const res = await generateVideoShotstack(cleanMsg, env, false);
+    const res = await generateVideoShotstack(cleanMsg, env, false, true);
     const vbuf = res && res.buf ? res.buf : (res || null);
     const vurl = res && res.url ? res.url : null;
     if (vbuf) {
@@ -4266,7 +4310,7 @@ async function autoPostAi(env) {
       const j = await r.json().catch(function () { return {}; });
       toYtVideo = !!j.ok;
       // Upload to YouTube as a new video (stream the source URL when available).
-      try { await uploadVideoToYouTube(vurl || vbuf, "Super AI — " + cleanMsg.slice(0, 60), "Made with Super AI (Ari AI engine). Get the app: https://aaa-store.aaateam.workers.dev/store", env); } catch (_) {}
+      try { await uploadVideoToYouTube(vurl || vbuf, "#Shorts — Super AI: " + cleanMsg.slice(0, 50), "Made with Super AI (Ari AI engine). Get the app: https://aaa-store.aaateam.workers.dev/store\n\n#Shorts #AI #SuperAI #AriAI", env); } catch (_) {}
     }
   } catch (e) {}
 
@@ -4434,6 +4478,9 @@ async function handle(request, env) {
     // YouTube OAuth: start (owner or user). Redirects to Google's consent page.
     if (request.method === "GET" && url.pathname === "/api/yt/connect") {
       const mode = url.searchParams.get("mode") === "owner" ? "owner" : "user";
+      // Drop any previously stored token so re-connection always yields a FRESH
+      // refresh token (Google only returns one when the old grant is cleared).
+      if (mode === "owner" && env.AAA_KV) { try { await env.AAA_KV.delete("yt_owner_refresh"); } catch (e) {} }
       const uid = (url.searchParams.get("uid") || "").trim();
       const redirectUri = url.origin + "/api/yt/callback";
       const scope = mode === "owner"
