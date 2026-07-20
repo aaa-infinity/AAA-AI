@@ -4432,11 +4432,11 @@ async function weeklyPromo(env) {
   const promo = await createPromoCode(env, { premiumDays: 7, maxRedemptions: 30, validDays: 7 });
   const msg = await adminAi(
     "Write an exciting short Telegram channel post (2-3 sentences, a few emojis) announcing a " +
-    "limited promo code that unlocks 7 days of Ari AI PREMIUM for only the first 30 people. " +
-    "The code is " + promo.code + ". Tell them to open the Ari AI app and redeem it in Profile. " +
+    "limited promo: first 30 users get 7 days of Ari AI PREMIUM free. Tell them to open the Ari AI " +
+    "app and redeem the code in Profile. Do NOT write the code itself — it is shown on the video. " +
     "Output only the post text.", "");
-  const post = (msg && msg.length > 5 ? htmlEscape(msg) : ("🎁 Limited drop! First 30 users get 7 days PREMIUM free.")) +
-    "\n\n🔑 Code: <b>" + promo.code + "</b>\n👥 First " + promo.maxRedemptions + " users only!";
+  const post = (msg && msg.length > 5 ? htmlEscape(msg) : ("🎁 Limited drop! First 30 users get 7 days PREMIUM free. Open the Ari AI app to redeem.")) +
+    "\n\n👥 First " + promo.maxRedemptions + " users only!";
   // Generate a vertical 9:16 promo SHORT via the Shotstack image pipeline
   // (reliable, free) and post it to Telegram + YouTube as a Short.
   let videoBuf = null;
@@ -4458,10 +4458,11 @@ async function weeklyPromo(env) {
       toChannel = !!j.ok;
     } catch (e) {}
     if (!toChannel) toChannel = await postToChannel(post);
-    // Upload the Short directly to YouTube.
+    // Upload the Short directly to YouTube. The code is shown ON the video (overlay),
+    // so we keep it out of the description text per request.
     toYtVideo = await uploadVideoToYouTube(videoBuf,
-      "#Shorts — Ari AI Promo " + promo.code + " 7 Days Premium Free",
-      "Limited promo! Use code " + promo.code + " in the Ari AI app to unlock 7 days of Premium. First 30 users only.\n\nGet the app: https://aaa-store.aaateam.workers.dev/store\n\n#Shorts #AI #SuperAI #AriAI",
+      "#Shorts — Ari AI Promo 7 Days Premium Free",
+      "Limited promo! First 30 users get 7 days of Ari AI Premium FREE. The code is shown on the video — open the Ari AI app and redeem it in Profile.\n\nGet the app: https://aaa-store.aaateam.workers.dev/store\n\n#Shorts #AI #SuperAI #AriAI",
       env);
   } else {
     // Fallback: post a generated image to the channel.
