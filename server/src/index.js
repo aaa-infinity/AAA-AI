@@ -1723,18 +1723,14 @@ async function generateVideoShotstack(prompt, env, useProd, vertical, type) {
     if (img) {
       clips.push({ asset: { type: "image", src: img }, start: t, length: sceneLen, effect: effects[i % effects.length], transition: { in: "fade" } });
     } else {
-      clips.push({ asset: { type: "title", text: titleText, style: "minimal" }, start: t, length: sceneLen });
+      clips.push({ asset: { type: "title", text: titleText, style: "subtitle", size: "small" }, start: t, length: sceneLen, position: "center" });
     }
-    const cap = sceneCaptions[i] || "";
-    if (cap) clips.push({ asset: { type: "title", text: cap, style: "subtitle" }, start: t, length: sceneLen, position: "bottom" });
-    if (env.aaa_assets) clips.push({ asset: { type: "image", src: origin + "/api/asset/public/aaa-store-logo.png" }, start: t, length: sceneLen, position: "topRight", scale: 0.16, opacity: 0.85 });
+    if (env.aaa_assets) clips.push({ asset: { type: "image", src: origin + "/api/asset/public/aaa-store-logo.png" }, start: t, length: sceneLen, position: "topRight", scale: 0.12, opacity: 0.8 });
     t += sceneLen;
   }
-  // Branded end-card CTA + subscribe prompt to boost Shorts retention.
-  clips.push({ asset: { type: "title", text: "Get Super AI 👉", style: "minimal" }, start: t, length: 1.5, position: "center" });
-  t += 1.5;
-  clips.push({ asset: { type: "title", text: "aaa-store.aaateam.workers.dev\nFollow for more AI ✨", style: "subtitle" }, start: t, length: 1.5, position: "bottom" });
-  t += 1.5;
+  // Branded end-card CTA (single clip, small text so it never gets cut off).
+  clips.push({ asset: { type: "title", text: "Get Super AI 👉 aaa-store.aaateam.workers.dev", style: "subtitle", size: "small" }, start: t, length: 2.5, position: "center" });
+  t += 2.5;
 
   // Audio: AI voiceover (the script) on top + royalty-free background music, both
   // hosted in R2 and referenced by URL (Shotstack sandbox can't fetch external audio).
@@ -1749,10 +1745,6 @@ async function generateVideoShotstack(prompt, env, useProd, vertical, type) {
     audioTracks.push({ clips: [{ asset: { type: "audio", src: origin + "/api/asset/" + vk, volume: 1 }, start: 0, length: t }] });
   }
   voiceErr = voiceRes.error; // surfaced by caller
-  const musicUrl = await getBgMusicUrl(env, origin);
-  if (musicUrl) {
-    audioTracks.push({ clips: [{ asset: { type: "audio", src: musicUrl, volume: 0.22 }, start: 0, length: t }] });
-  }
 
   const payload = {
     timeline: {
@@ -2937,11 +2929,20 @@ async function handleAdmin(update) {
 
   if (cmd === "/autopost") {
     await tgAction(ENV.ADMIN_BOT_TOKEN, chatId);
+    const arg2 = (arg || "").trim().toLowerCase();
+    if (arg2 === "on" || arg2 === "off") {
+      const on = arg2 === "on";
+      try { await ENV.AAA_KV.put("autopost_enabled", on ? "1" : "0"); } catch (e) {}
+      await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🤖 Automatic Short creation is now " + (on ? "ENABLED ✅" : "DISABLED ⏸") + ".");
+      return;
+    }
+    const enabled = (ENV.AAA_KV ? await ENV.AAA_KV.get("autopost_enabled") : null) || "1";
     const r = await autoPostAi(ENV);
     await tgSend(ENV.ADMIN_BOT_TOKEN, chatId,
-      "🤖 Auto-post done.\nChannel: " + (r.toChannel ? "✅" : "❌") +
+      "🤖 Auto-post done." + (enabled === "0" ? " (Note: auto mode is OFF — only this manual run executed.)\n" : "\n") +
+      "Channel: " + (r.toChannel ? "✅" : "❌") +
       "\nYouTube desc: " + (r.toYt ? "✅" : "❌") +
-      "\nShort video: " + (r.toYtVideo ? "✅" : "— skipped (credits)"));
+      "\nShort video: " + (r.toYtVideo ? "✅" : "— skipped"));
     return;
   }
 
@@ -5015,11 +5016,13 @@ export async function scheduled(controller, env) {
 
   // Auto-post AI-generated content to the Telegram channel + YouTube on a random
   // cadence (roughly every other day) so the community stays alive without manual work.
+  // Respects the /autopost on|off toggle (default: enabled).
   try {
+    const autoOn = (env.AAA_KV ? await env.AAA_KV.get("autopost_enabled") : null) || "1";
     const last = parseInt((await env.AAA_KV.get("autopost_last_run")) || "0", 10) || 0;
     const twoDays = 2 * 24 * 3600 * 1000;
     // Random trigger: every ~2 days OR a 35% daily dice roll.
-    if (Date.now() - last >= twoDays || Math.random() < 0.35) {
+    if (autoOn === "1" && (Date.now() - last >= twoDays || Math.random() < 0.35)) {
       const r = await autoPostAi(env);
       await env.AAA_KV.put("autopost_last_run", String(Date.now()));
       if (env.ADMIN_CHAT_ID && env.ADMIN_BOT_TOKEN) {
