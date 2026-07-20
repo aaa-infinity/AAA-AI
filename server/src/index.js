@@ -1420,6 +1420,78 @@ async function aiVideoBrief(text, env) {
   return { prompt: text.slice(0, 120), type: "general" };
 }
 
+/** Refine a free-text reply into a broadcast message. */
+async function aiBroadcastBrief(text, env) {
+  try {
+    const raw = await adminAi(
+      "You help write a broadcast message to ALL users of the 'Super AI' app (free all-in-one AI assistant).\n" +
+      "The admin said: \"" + text + "\"\n" +
+      "Return ONLY a tiny JSON: {\"msg\":\"the final message to send (friendly, 1-3 sentences, may include 1-2 emojis, no quotes)\"}.", "");
+    const m = (raw || "").match(/\{[\s\S]*\}/);
+    if (m) { const o = JSON.parse(m[0]); if (o.msg && o.msg.trim()) return o.msg.trim().slice(0, 1000); }
+  } catch (e) {}
+  return text.slice(0, 1000);
+}
+
+/** Refine a free-text reply into a public channel post. Supports "ai: <topic>"
+ *  to let the AI draft the post from a topic. */
+async function aiChannelBrief(text, env) {
+  const t = (text || "").trim();
+  if (t.toLowerCase().startsWith("ai:")) {
+    const topic = t.slice(3).trim();
+    try {
+      const raw = await adminAi(
+        "Write a friendly, upbeat Telegram channel post (2-3 sentences, 1-3 emojis) about: " + topic +
+        " for our Ari AI app community. Mention Ari AI naturally. Output only the post text.", "");
+      if (raw && raw.length > 5) return raw.trim().slice(0, 1000);
+    } catch (e) {}
+    return topic;
+  }
+  try {
+    const raw = await adminAi(
+      "You help write a public Telegram channel post for the 'Super AI' app.\n" +
+      "The admin said: \"" + t + "\"\n" +
+      "Return ONLY a tiny JSON: {\"msg\":\"the final post (2-3 sentences, 1-3 emojis, no quotes)\"}.", "");
+    const m = (raw || "").match(/\{[\s\S]*\}/);
+    if (m) { const o = JSON.parse(m[0]); if (o.msg && o.msg.trim()) return o.msg.trim().slice(0, 1000); }
+  } catch (e) {}
+  return t.slice(0, 1000);
+}
+
+/** Refine a free-text reply into a clean image-generation prompt. */
+async function aiImageBrief(text, env) {
+  try {
+    const raw = await adminAi(
+      "You help write an image-generation prompt for the 'Super AI' app (modern AI assistant branding: neon purple/pink, futuristic).\n" +
+      "The admin said: \"" + text + "\"\n" +
+      "Return ONLY a tiny JSON: {\"prompt\":\"a vivid image prompt (max 15 words, visual only, no text in image)\"}.", "");
+    const m = (raw || "").match(/\{[\s\S]*\}/);
+    if (m) { const o = JSON.parse(m[0]); if (o.prompt && o.prompt.trim()) return o.prompt.trim().slice(0, 200); }
+  } catch (e) {}
+  return text.slice(0, 200);
+}
+
+/** Parse a free-text reply into a scheduled post: <minutes> <message>. */
+async function aiScheduleBrief(text, env) {
+  const t = (text || "").trim();
+  const m = t.match(/^(\d+)\s+([\s\S]+)$/);
+  if (m) return { minutes: parseInt(m[1], 10), message: m[2].trim().slice(0, 1000) };
+  // No leading number: ask the AI to extract minutes + message if implied.
+  try {
+    const raw = await adminAi(
+      "Extract a schedule from: \"" + t + "\"\n" +
+      "Return ONLY a tiny JSON: {\"minutes\":<number>,\"message\":\"<text>\"}. If no time is mentioned, use minutes:30.", "");
+    const mm = (raw || "").match(/\{[\s\S]*\}/);
+    if (mm) {
+      const o = JSON.parse(mm[0]);
+      const mins = parseInt(o.minutes, 10) || 30;
+      const msg = (o.message && o.message.trim()) || t;
+      return { minutes: mins, message: msg.slice(0, 1000) };
+    }
+  } catch (e) {}
+  return { minutes: 30, message: t.slice(0, 1000) };
+}
+
 /** Post a structured "Info Received" update to the private admin channel
  *  (AAA AI APP ADMIN, id -1004241419377). Admin-only, never public. */
 export async function adminChannelNotify(env, type, fields) {
@@ -1657,7 +1729,7 @@ async function generateVideoKie(prompt, env) {
     return null;
   }
 
-async function generateVideoShotstack(prompt, env, useProd, vertical, type) {
+async function generateVideoShotstack(prompt, env, useProd, vertical, type, promoCode) {
   let voiceErr = null;
   const key = await providerKey(env, "shotstack", "SHOTSTACK_KEY");
   if (!key) return { buf: null, error: "no_shotstack_key" };
@@ -1694,7 +1766,8 @@ async function generateVideoShotstack(prompt, env, useProd, vertical, type) {
     sceneCaptions = ["Your AI assistant", "Chat · Images · Downloads", "All in one app", "Free to start"];
     imgThemes = [safe + " smartphone app UI", "person using AI chat assistant", "AI generated art on phone", "happy user creating content"];
   } else if (type === "promo" || type === "promocode") {
-    script = "Limited drop! Use our promo code to unlock Premium free. First users only. Open Super AI, redeem your code, and enjoy Pro features today.";
+    const codeTxt = promoCode ? (" code " + promoCode) : " code";
+    script = "Limited drop! Use our promo" + codeTxt + " to unlock Premium free. First users only. Open Super AI, redeem your code, and enjoy Pro features today.";
     sceneCaptions = ["Limited Promo", "Unlock Premium FREE", "First users only", "Redeem in app"];
     imgThemes = [safe + " gift box glowing", "premium badge neon", "countdown timer style", "celebration confetti ai"];
   } else if (type === "tip") {
@@ -1751,6 +1824,10 @@ async function generateVideoShotstack(prompt, env, useProd, vertical, type) {
   // Branded end-card CTA (single clip, small text so it never gets cut off).
   clips.push({ asset: { type: "title", text: "Get Super AI 👉 aaa-store.aaateam.workers.dev", style: "subtitle", size: "small" }, start: t, length: 2.5, position: "center" });
   t += 2.5;
+  // Optional visible promo code overlay (so the code is ON the video, not just the caption).
+  if (promoCode) {
+    clips.push({ asset: { type: "title", text: "🎁 CODE: " + promoCode, style: "minimal", size: "medium" }, start: t - 2.5, length: 2.5, position: "bottom" });
+  }
 
   // Audio: AI voiceover (the script) on top + royalty-free background music, both
   // hosted in R2 and referenced by URL (Shotstack sandbox can't fetch external audio).
@@ -2641,12 +2718,12 @@ async function handleAdmin(update) {
       if (data.startsWith("sk:")) { await adminPromptKey(chatId, data.slice(3)); return; }
       // Direct actions: run immediately. Prompt actions: ask for input first.
       const promptMap = {
-        bc: ["bc", "📣 <b>Broadcast</b>\nReply with the message you want to send to ALL app users."],
-        ch: ["ch", "📢 <b>Channel post</b>\nReply with the message (or \"ai: &lt;topic&gt;\") to post to the public channel."],
-        img: ["img", "🎨 <b>Image</b>\nReply with the image prompt to generate."],
+        bc: ["bc", "🤖 <b>Broadcast</b>\nWhat do you want to tell ALL app users? Just describe it in plain words and I'll draft the message. 📣"],
+        ch: ["ch", "🤖 <b>Channel post</b>\nWhat should I post to the public channel? Describe it, or say \"ai: &lt;topic&gt;\" and I'll write it. 📢"],
+        img: ["img", "🤖 <b>Image</b>\nWhat should I draw? Describe the scene/vibe in plain words and I'll generate it. 🎨"],
         vid: ["vid", "🤖 <b>Short Video</b>\nTell me what you'd like — e.g. an app ad, a promo drop, or an AI tip. What's the product/vibe? I'll turn it into a vertical 9:16 YouTube Short for you. 🎬"],
         reel: ["reel", "🤖 <b>Short Video</b>\nTell me what you'd like — e.g. an app ad, a promo drop, or an AI tip. What's the product/vibe? I'll turn it into a vertical 9:16 YouTube Short for you. 🎬"],
-        schedule: ["schedule", "⏰ <b>Schedule</b>\nReply with: &lt;minutes&gt; &lt;message&gt; (e.g. 30 Drop a new AI tip!)"],
+        schedule: ["schedule", "⏰ <b>Schedule</b>\nWhat should I post later, and in how many minutes? (e.g. \"30 drop a new AI tip!\") — or just describe it and I'll pick a time."],
         ai: ["ai", "🤖 <b>Ask AI</b>\nReply with your question — I'll answer using live stats & provider health."],
       };
       if (promptMap[data]) {
@@ -2753,9 +2830,30 @@ async function handleAdmin(update) {
         }
         return;
       }
-      const route = { bc: "/broadcast ", ch: "/channel ", img: "/img ", schedule: "/schedule " }[awaiting];
-      if (route) {
-        await handleAdmin({ message: { chat: { id: chatId }, text: route + text, from: msg.from } });
+      // Each tap command now routes the reply through the AI, which shapes the
+      // free-text into a clean, correctly-formatted action.
+      if (awaiting === "bc") {
+        await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🤖 Shaping your broadcast…");
+        const msg = await aiBroadcastBrief(text, ENV);
+        await handleAdmin({ message: { chat: { id: chatId }, text: "/broadcast " + msg, from: msg.from } });
+        return;
+      }
+      if (awaiting === "ch") {
+        await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🤖 Shaping your channel post…");
+        const msg = await aiChannelBrief(text, ENV);
+        await handleAdmin({ message: { chat: { id: chatId }, text: "/channel " + msg, from: msg.from } });
+        return;
+      }
+      if (awaiting === "img") {
+        await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🤖 Shaping your image prompt…");
+        const prompt = await aiImageBrief(text, ENV);
+        await handleAdmin({ message: { chat: { id: chatId }, text: "/img " + prompt, from: msg.from } });
+        return;
+      }
+      if (awaiting === "schedule") {
+        await tgSend(ENV.ADMIN_BOT_TOKEN, chatId, "🤖 Reading your schedule…");
+        const s = await aiScheduleBrief(text, ENV);
+        await handleAdmin({ message: { chat: { id: chatId }, text: "/schedule " + s.minutes + " " + s.message, from: msg.from } });
         return;
       }
       // vid / reel: the AI turns the reply into a refined Short brief + type, then renders.
@@ -4343,7 +4441,7 @@ async function weeklyPromo(env) {
   // (reliable, free) and post it to Telegram + YouTube as a Short.
   let videoBuf = null;
   try {
-    const res = await generateVideoShotstack(promo.code + " 7 days premium free — Ari AI", env, false, true);
+    const res = await generateVideoShotstack(promo.code + " 7 days premium free — Ari AI", env, false, true, "promo", promo.code);
     videoBuf = res && res.buf ? res.buf : (res || null);
   } catch (e) {}
   let toChannel = false;
